@@ -1,0 +1,33 @@
+Tunerfenster includes VLCKit 3.7.4 / libVLC by VideoLAN and its contributors.
+Tunerfenster enthält VLCKit 3.7.4 / libVLC von VideoLAN und Mitwirkenden.
+
+VLCKit and its playback engine are distributed under the GNU Lesser General
+Public License, version 2.1 or later. See VLCKit-LGPL-2.1.txt in this folder.
+Copyright remains with VideoLAN and the individual authors.
+
+Official binary package (macOS, built 2026-09-22):
+https://download.videolan.org/pub/cocoapods/prod/VLCKit-3.0-20260922-1444.tar.xz
+SHA-256: d57a80455900e031ec87b08bdc684ba58989f9cec317b04739b2ee6b1d7a1868
+
+VLCKit source and build scripts (release 3.7.4):
+https://code.videolan.org/videolan/VLCKit/-/tree/3.7.4
+https://github.com/videolan/vlckit/tree/54bba6d95502d0f3f7a9da581727935b21d55fb2
+libVLC revision: 6de05adcbaf2e8b85fe86aad4169393098628119
+https://github.com/videolan/vlc/tree/6de05adcbaf2e8b85fe86aad4169393098628119
+Official package declaration:
+https://github.com/videolan/vlckit/blob/b2edca9ca041eafad1408ee91a55e6d87f7e23d5/Packaging/podspecs/VLCKit.podspec
+The build scripts pin the libVLC revision, apply the upstream patches and list
+the contributed libraries and their source downloads.
+
+The framework is dynamically loaded. Its only binary modifications are selecting
+the matching CPU slice and applying our distribution signature. You may replace
+it with an API-compatible modified build. For local use, re-sign the replacement
+framework first, then the app, with codesign --force --sign - on each bundle.
+This does not require Tunerfenster source code or object files. Reverse
+engineering for debugging modifications to the LGPL component is permitted.
+
+VLCKit wird dynamisch geladen. Geändert wurden nur die CPU-Auswahl und die
+Signatur. Ein kompatibles, selbst geändertes Framework lässt sich einsetzen und
+für den lokalen Einsatz zusammen mit der App neu signieren (zuerst Framework,
+dann App). Die LGPL-Rechte bleiben erhalten, einschließlich der Fehlersuche an
+Änderungen der Bibliothek. Die Lizenz enthält keine Gewährleistung.
