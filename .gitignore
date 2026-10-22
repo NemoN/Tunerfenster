@@ -1,0 +1,13 @@
+.build/
+.cache/
+dist/
+.DS_Store
+.impeccable/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.key
