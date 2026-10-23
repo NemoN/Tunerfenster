@@ -5,16 +5,22 @@ import Darwin
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var monitor: Monitor?
+    weak var updater: UpdateChecker?
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ notification: Notification) { monitor?.shutdown() }
-    func applicationDidBecomeActive(_ notification: Notification) { LanguageStore.shared.localizeNativeMenus() }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        LanguageStore.shared.localizeNativeMenus()
+        Task { await updater?.check(automatically: true) }
+    }
 }
 
 @main
 struct TunerfensterApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var monitor = Monitor()
+    @StateObject private var updater = UpdateChecker()
     @ObservedObject private var language = LanguageStore.shared
+    @Environment(\.openWindow) private var openWindow
     @State private var settingsVisible = false
 
     init() {
@@ -43,12 +49,13 @@ struct TunerfensterApp: App {
 
     var body: some Scene {
         Window("Tunerfenster", id: "main") {
-            MonitorView(monitor: monitor, settingsVisible: $settingsVisible)
+            MonitorView(monitor: monitor, updater: updater, settingsVisible: $settingsVisible)
                 .environment(\.locale, language.language.locale)
                 .preferredColorScheme(.dark)
                 .frame(minWidth: 700, minHeight: 460)
-                .onAppear { delegate.monitor = monitor; monitor.start() }
-                .sheet(isPresented: $settingsVisible) { ConnectionView(monitor: monitor) }
+                .onAppear { delegate.monitor = monitor; delegate.updater = updater; monitor.start() }
+                .task { await updater.runAutomaticChecks() }
+                .sheet(isPresented: $settingsVisible) { ConnectionView(monitor: monitor, updater: updater) }
         }
         .defaultSize(width: 1320, height: 820)
         .windowResizability(.contentMinSize)
@@ -56,6 +63,12 @@ struct TunerfensterApp: App {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .appSettings) {
                 Button(L10n.text("settingsMenu")) { settingsVisible = true }.keyboardShortcut(",")
+            }
+            CommandGroup(after: .appInfo) {
+                Button(L10n.text("checkForUpdates")) {
+                    openWindow(id: "updates")
+                    Task { await updater.check() }
+                }.disabled(updater.isChecking)
             }
             CommandMenu(L10n.text("playbackMenu")) {
                 Button(monitor.paused ? L10n.text("resume") : L10n.text("pauseAll")) { monitor.togglePause() }.keyboardShortcut("p")
@@ -73,12 +86,19 @@ struct TunerfensterApp: App {
                 }
             }
         }
+        Window(L10n.text("softwareUpdates"), id: "updates") {
+            UpdateView(updater: updater)
+                .environment(\.locale, language.language.locale)
+                .preferredColorScheme(.dark)
+        }
+        .windowResizability(.contentSize)
     }
 }
 
 private struct MonitorView: View {
     @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var monitor: Monitor
+    @ObservedObject var updater: UpdateChecker
     @Binding var settingsVisible: Bool
     @AppStorage("onlyBusy") private var onlyBusy = false
     @AppStorage("preferredColumns") private var columns = 0
@@ -133,6 +153,7 @@ private struct MonitorView: View {
             } else if let warning = monitor.catalogWarning {
                 notice(warning.localizedDescription, symbol: "exclamationmark.triangle", color: .orange)
             }
+            UpdateBanner(updater: updater)
 
             GeometryReader { geometry in
                 Group {
@@ -399,13 +420,15 @@ private struct TunerTile: View {
 private struct ConnectionView: View {
     @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var monitor: Monitor
+    @ObservedObject var updater: UpdateChecker
     @Environment(\.dismiss) private var dismiss
     @State private var draft: Connection
     @State private var error: AppError?
     @AppStorage("lnbSwitchMHz") private var switchMHz = 11700.0
 
-    init(monitor: Monitor) {
+    init(monitor: Monitor, updater: UpdateChecker) {
         self.monitor = monitor
+        self.updater = updater
         _draft = State(initialValue: monitor.connection)
     }
 
@@ -437,6 +460,8 @@ private struct ConnectionView: View {
                     }
             }
             Text(L10n.text("bandSwitchNote")).font(.caption).foregroundStyle(.secondary)
+            Divider()
+            UpdateSettingsView(updater: updater)
             if let error { Text(error.localizedDescription).font(.callout).foregroundStyle(.orange) }
             HStack {
                 Spacer()

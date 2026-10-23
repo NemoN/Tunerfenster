@@ -91,10 +91,13 @@ final class LanguageStore: ObservableObject {
             }
         }
         if let menu = NSApp.mainMenu { translate(menu) }
+        for window in NSApp.windows where Self.nativeTitles[window.title] == "softwareUpdates" {
+            window.title = L10n.text("softwareUpdates")
+        }
     }
 
     private static let nativeTitles: [String: String] = {
-        let keys = ["menuEdit", "menuView", "menuWindow", "menuHelp", "menuServices", "menuUndo", "menuRedo", "menuCut", "menuCopy", "menuPaste", "menuPasteStyle", "menuDelete", "menuSelectAll", "menuMinimize", "menuZoom", "menuBringAll", "menuEnterFullScreen", "menuExitFullScreen", "menuShowToolbar", "menuHideToolbar", "menuCustomizeToolbar", "menuAbout", "menuHideApp", "menuHideOthers", "menuShowAll", "menuQuit", "menuAppHelp"]
+        let keys = ["menuEdit", "menuView", "menuWindow", "menuHelp", "menuServices", "menuUndo", "menuRedo", "menuCut", "menuCopy", "menuPaste", "menuPasteStyle", "menuDelete", "menuSelectAll", "menuMinimize", "menuZoom", "menuBringAll", "menuEnterFullScreen", "menuExitFullScreen", "menuShowToolbar", "menuHideToolbar", "menuCustomizeToolbar", "menuAbout", "menuHideApp", "menuHideOthers", "menuShowAll", "menuQuit", "menuAppHelp", "softwareUpdates"]
         var result = [String: String]()
         for language in AppLanguage.allCases {
             let table = L10n.translations(for: language)
