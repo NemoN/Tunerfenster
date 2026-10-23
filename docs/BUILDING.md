@@ -57,6 +57,8 @@ app. `--no-bootstrap` explicitly disables this. Do not distribute bootstrap buil
 swift test
 # Optional read-only integration against your own TVHeadend server:
 TVH_INTEGRATION_ENV=/absolute/path/to/local.env swift test
+# Optional read-only check against the public GitHub release API:
+TUNERFENSTER_LIVE_UPDATES=1 swift test
 ```
 
 The tests cover status matching, preview lifecycle, EPG, picons, localization,
@@ -127,3 +129,30 @@ package, checksum, source revisions and LGPL terms. The framework's only binary
 changes are selecting one CPU slice and applying the distribution signature.
 Library replacement for local use requires re-signing the framework and then
 the app. Keep the third-party notices with redistributed copies.
+
+## GitHub update metadata
+
+The updater reads the public `NemoN/Tunerfenster` latest-release API. Publish a
+stable tag such as `v1.8.0` that matches the app's `CFBundleShortVersionString`,
+with both generated installers attached before publishing:
+
+```text
+Tunerfenster-1.8.0-arm64.dmg
+Tunerfenster-1.8.0-x86_64.dmg
+```
+
+Drafts, pre-releases, malformed versions and older versions are not offered.
+Each download must belong to that exact repository and tag and have the
+expected CPU-specific filename. If an installer is missing, the app offers
+the release page and explains the missing download. Keep this filename
+contract when preparing future releases.
+
+Checks use an isolated URLSession without cookies, cached credentials or
+TVHeadend configuration. Automatic attempts are spaced at least 24 hours
+apart, including failed attempts. Manual checks can retry immediately. Known
+release metadata is cached locally and re-evaluated against the installed
+version and current hardware on launch. Apple Silicon is detected even from
+an Intel process under Rosetta. Downloads and installation require user action.
+
+API and platform references: [GitHub Releases API](https://docs.github.com/en/rest/releases/releases)
+and [Apple's Rosetta translation detection](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment).
