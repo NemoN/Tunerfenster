@@ -14,8 +14,8 @@ Die VLC-Wiedergabe-Engine ist integriert.
 
 | Dein Mac | Signierte und notarisierte Installationsdatei |
 | --- | --- |
-| Apple Silicon — M1 oder neuer | [arm64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.7.1-arm64.dmg) |
-| Intel — 64 Bit | [x64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.7.1-x86_64.dmg) |
+| Apple Silicon — M1 oder neuer | [arm64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.8.0-arm64.dmg) |
+| Intel — 64 Bit | [x64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.8.0-x86_64.dmg) |
 
 [Alle Releases und SHA-256-Prüfsummen](https://github.com/NemoN/Tunerfenster/releases)
 
@@ -65,6 +65,21 @@ Serverkonfiguration.
   Einstellungen und Statusmeldungen wechseln mit.
 - **Integrierte Wiedergabe:** VLCKit 3.7.4 / libVLC 3.0.24 ist enthalten.
   Getrennte Builds für Apple Silicon und Intel.
+
+## Softwareupdates
+
+Tunerfenster prüft während der Laufzeit einmal täglich die öffentlichen
+GitHub-Releases. Ein Hinweis erscheint, sobald eine neuere stabile Version
+verfügbar ist. **Update ansehen** bietet die passende DMG für Apple Silicon
+oder Intel an, auch wenn die Intel-App auf einem Apple-Silicon-Mac unter
+Rosetta läuft.
+
+Über **Tunerfenster → Nach Updates suchen …** kannst du jederzeit prüfen.
+Automatische Prüfungen lassen sich in den Einstellungen oder im Fenster
+Softwareupdates abschalten. Der Download öffnet sich im Browser. Beende die
+App und ersetze sie aus der DMG; deine Einstellungen bleiben erhalten.
+Die Prüfung übermittelt keine TVHeadend-Adresse, Zugangsdaten oder Tunerdaten
+an GitHub. Updates werden nicht automatisch installiert.
 
 ## Arbeitsweise
 
