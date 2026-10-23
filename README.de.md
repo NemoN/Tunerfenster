@@ -27,9 +27,32 @@ Deine Einstellungen bleiben bei Updates erhalten. Die App startet stumm.
 
 ## Screenshots
 
-Die Screenshots zeigen einen lokalen Demo-Server mit erfundenen Sendern und
-erzeugten Testsignalen. Sie enthalten keine Fernsehaufnahmen oder privaten
-Servereinstellungen.
+Die Screenshots zeigen Tunerfenster 1.9.0 an einem echten TVHeadend-Server.
+Die Fensterkopfzeile mit der privaten Serveradresse ist aus den Bildern
+herausgeschnitten.
+
+### Live-TV mit EPG und Empfangsdaten
+
+![Live-TV mit Programmführer, Senderlogo und Empfangsdaten](docs/screenshots/live-tv.png)
+
+### Aufnahmen abspielen
+
+![Eine Aufnahme vom TVHeadend-Server neben der Aufnahmeliste](docs/screenshots/live-recordings.png)
+
+### VLC-Streamstatistik
+
+![VLC-Streamstatistik über dem laufenden Fernsehbild](docs/screenshots/live-statistics.png)
+
+### Tuner-Mosaik
+
+13 Tuner mit einem Live-Stream, einer EPG-Abfrage und freien Tunern.
+
+![Echtes Tuner-Mosaik mit Live-Stream, EPG-Abfrage und freien Tunern](docs/screenshots/live-mosaic.png)
+
+<details>
+<summary>Demo-Screenshots auf Deutsch und Englisch</summary>
+
+Die folgenden Beispiele verwenden erfundene Sender und erzeugte Testsignale.
 
 ### Tuner-Mosaik
 
@@ -42,6 +65,8 @@ Servereinstellungen.
 ### Empfangsdaten
 
 ![Empfangsinformationen auf Deutsch](docs/screenshots/reception-de.png)
+
+</details>
 
 ## Funktionen
 

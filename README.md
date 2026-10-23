@@ -27,8 +27,31 @@ Updates keep your settings. The app starts muted.
 
 ## Screenshots
 
-The screenshots show a local demo server with fictitious channels and generated
-test signals. They contain no broadcast footage or private server configuration.
+These screenshots show Tunerfenster 1.9.0 connected to a real TVHeadend server.
+The window header containing the private server address has been cropped out.
+
+### Live TV with EPG and reception details
+
+![Live TV with programme guide, channel logo and reception details](docs/screenshots/live-tv.png)
+
+### Recording playback
+
+![A recording from TVHeadend playing beside the recordings list](docs/screenshots/live-recordings.png)
+
+### VLC stream statistics
+
+![VLC stream statistics over the live picture](docs/screenshots/live-statistics.png)
+
+### Tuner mosaic
+
+13 tuners, with one live stream, an EPG scan and idle tuners.
+
+![Real tuner mosaic showing a live stream, an EPG scan and idle tuners](docs/screenshots/live-mosaic.png)
+
+<details>
+<summary>Demo screenshots in English and German</summary>
+
+The following examples use fictitious channels and generated test signals.
 
 ### Tuner mosaic
 
@@ -41,6 +64,8 @@ test signals. They contain no broadcast footage or private server configuration.
 ### German interface and reception details
 
 ![German interface with reception information](docs/screenshots/reception-de.png)
+
+</details>
 
 ## Features
 
