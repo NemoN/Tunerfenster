@@ -8,6 +8,7 @@ struct ChannelSelectionView: View {
     @State private var search = ""
     @State private var allServices = false
     @State private var selectedID: String?
+    @State private var revealID: String?
     @AppStorage("lnbSwitchMHz") private var switchMHz = 11700.0
 
     private var items: [StreamChoice] {
@@ -18,6 +19,7 @@ struct ChannelSelectionView: View {
     }
 
     var body: some View {
+        let currentID = monitor.currentChoice(for: tuner)?.id
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.text("chooseChannelFor", tuner.input.shortName)).font(.headline)
             Button {
@@ -30,7 +32,9 @@ struct ChannelSelectionView: View {
             Divider()
             TextField(L10n.text("searchChannels"), text: $search).textFieldStyle(.roundedBorder)
                 .onChange(of: search) { _, _ in selectedID = items.count == 1 ? items.first?.id : nil }
-                .onChange(of: allServices) { _, _ in selectedID = nil }
+                .onChange(of: allServices) { _, _ in
+                    if !items.contains(where: { $0.id == selectedID }) { selectedID = nil }
+                }
             Picker(L10n.text("channelCatalog"), selection: $allServices) {
                 Text(L10n.text("mappedChannels")).tag(false)
                 Text(L10n.text("allServices")).tag(true)
@@ -41,31 +45,36 @@ struct ChannelSelectionView: View {
                     Text(L10n.text("noMatchingChannelsHelp")).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(selection: $selectedID) {
-                    ForEach(items) { item in
-                        HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(item.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
-                                Text([item.service.network, item.multiplex?.summary(switchMHz: switchMHz) ?? item.service.multiplex].compactMap { $0 }.joined(separator: " · "))
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                            if monitor.manual[tuner.id]?.id == item.id { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
-                        }.padding(.vertical, 3).contentShape(Rectangle()).tag(item.id)
-                    }
-                }.listStyle(.inset)
+                ChannelChoiceList(items: items, selectedID: $selectedID, currentID: currentID,
+                                  revealID: revealID, switchMHz: switchMHz, activate: switchChannel)
             }
             HStack {
                 Spacer()
-                Button(L10n.text("startPreview")) {
+                Button(L10n.text("switchChannel")) {
                     guard let item = items.first(where: { $0.id == selectedID }) else { return }
-                    monitor.choose(item, for: tuner); close()
+                    switchChannel(item)
                 }.keyboardShortcut(.defaultAction)
                     .disabled(!items.contains { $0.id == selectedID })
             }
             Text(L10n.text("manualSessionNote")).font(.caption).foregroundStyle(.secondary)
         }.padding(18).frame(width: 440, height: 510)
-            .onAppear { selectedID = monitor.manual[tuner.id]?.id }
+            .playbackPanel()
+            .onAppear { restoreCurrentChannel() }
+            .onChange(of: monitor.choices.map(\.id)) { _, _ in
+                if selectedID == nil && search.isEmpty { restoreCurrentChannel() }
+            }
+    }
+
+    private func restoreCurrentChannel() {
+        guard let current = monitor.currentChoice(for: tuner) else { return }
+        allServices = !current.mapped
+        selectedID = current.id
+        revealID = current.id
+    }
+
+    private func switchChannel(_ item: StreamChoice) {
+        monitor.choose(item, for: tuner)
+        close()
     }
 }
 
@@ -99,8 +108,8 @@ struct ReceptionDetailsView: View {
                 }.font(.callout).monospacedDigit()
             }
             Text(L10n.text("bandCalculation", Multiplex.number(switchMHz))).font(.caption).foregroundStyle(.secondary)
-            if let warning = monitor.receptionWarning { Text(warning.localizedDescription).font(.caption).foregroundStyle(.orange) }
-        }.padding(18).frame(width: 380)
+            if let warning = monitor.receptionWarning { Text(warning.localizedDescription).font(.caption).foregroundStyle(ThemeColors.warning) }
+        }.padding(18).frame(width: 380).playbackPanel()
     }
 
     private var sourceNames: String {
@@ -131,5 +140,65 @@ struct ReceptionDetailsView: View {
             Text(L10n.text(key)).foregroundStyle(.secondary)
             Text(value).frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+struct FocusedReceptionView: View {
+    @ObservedObject private var language = LanguageStore.shared
+    @ObservedObject var monitor: Monitor
+    let tuner: Tuner
+    @AppStorage("lnbSwitchMHz") private var switchMHz = 11700.0
+    @State private var showingDetails = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(L10n.text("receptionDetails")).font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                Button { showingDetails = true } label: { Image(systemName: "info.circle") }
+                    .buttonStyle(.plain).accessibilityLabel(L10n.text("receptionFor", tuner.input.shortName))
+                    .help(L10n.text("receptionDetails"))
+                    .popover(isPresented: $showingDetails, arrowEdge: .bottom) {
+                        ReceptionDetailsView(monitor: monitor, tuner: tuner)
+                    }
+            }
+            if monitor.manual[tuner.id] != nil {
+                Text(L10n.text("previewVia", sourceNames)).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(monitor.displayedMultiplex(for: tuner)?.summary(switchMHz: switchMHz) ??
+                 (monitor.manual[tuner.id] == nil ? tuner.input.stream : nil) ?? L10n.text("noActiveMultiplex"))
+                .font(.caption.weight(.medium)).monospacedDigit().textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            if let input = source, input.stream != nil {
+                HStack {
+                    Text(input.signalLabel)
+                    Spacer(minLength: 8)
+                    if let snr = input.snrLabel { Text(snr) }
+                }
+                HStack {
+                    Text(L10n.text("bitrate", L10n.decimal((input.bps ?? 0) / 1_000_000)))
+                    Spacer(minLength: 8)
+                    Text(L10n.text("continuityErrorCount", input.cc.map(String.init) ?? "–"))
+                }
+            } else {
+                Text(L10n.text(monitor.manual[tuner.id] == nil ? "waitingChannel" : "tunerPending"))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption).monospacedDigit()
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+    }
+
+    private var sourceNames: String {
+        let sources = monitor.sources(for: tuner)
+        return sources.isEmpty ? L10n.text("tunerPending") : sources.map(\.shortName).joined(separator: ", ")
+    }
+
+    private var source: Input? {
+        let inputs = monitor.sources(for: tuner)
+        return inputs.count == 1 ? inputs.first : nil
     }
 }

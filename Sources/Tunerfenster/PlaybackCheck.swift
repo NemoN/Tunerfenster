@@ -12,26 +12,14 @@ enum PlaybackCheck {
         defer { api.mediaRelease(media) }
         guard let player = api.playerNew(api.instance) else { throw AppError.message("vlcPlayerFailed") }
         defer { api.stop(player); api.playerRelease(player) }
-        guard let symbol = dlsym(api.library, "libvlc_media_get_stats") else {
-            throw AppError.message("vlcUnsupported", ["libvlc_media_get_stats"])
-        }
-        let stats = unsafeBitCast(symbol, to: (@convention(c) (VLCRef?, UnsafeMutableRawPointer?) -> Int32).self)
-        // libvlc_media_stats_t in libVLC 3.x consists of fifteen 32-bit fields.
-        let buffer = UnsafeMutableRawPointer.allocate(byteCount: 60, alignment: 4)
-        defer { buffer.deallocate() }
-        buffer.initializeMemory(as: UInt8.self, repeating: 0, count: 60)
         api.setMedia(player, media)
         api.mute(player, 1)
         guard api.play(player) == 0 else { throw AppError.message("vlcStartFailed") }
         let deadline = Date().addingTimeInterval(15)
         repeat {
-            if stats(media, buffer) != 0 {
-                let video = buffer.load(fromByteOffset: 6 * 4, as: Int32.self)
-                let audio = buffer.load(fromByteOffset: 7 * 4, as: Int32.self)
-                if video > 0, audio > 0 {
-                    var width: UInt32 = 0, height: UInt32 = 0
-                    _ = api.videoSize(player, 0, &width, &height)
-                    print("Playback passed: \(video) video frames, \(audio) audio frames, \(width)×\(height).")
+            if let stats = api.statistics(for: player) {
+                if stats.decodedVideo > 0, stats.decodedAudio > 0, stats.readBytes > 0, stats.demuxBytes > 0 {
+                    print("Playback passed: \(stats.decodedVideo) video frames, \(stats.decodedAudio) audio frames, \(stats.width)×\(stats.height), \(stats.readBytes) input bytes.")
                     return
                 }
             }

@@ -25,7 +25,7 @@ if [ "$method" != "--resume" ]; then
         printf 'An uploaded archive is waiting. Finish it with ./release-app.sh --resume before rebuilding.\n' >&2
         exit 1
     fi
-    TARGET_ARCH="$architecture" APP_BUNDLE="$app_dir" ./build-app.sh --no-bootstrap
+    SIGNING_MODE=release TARGET_ARCH="$architecture" APP_BUNDLE="$app_dir" ./build-app.sh --no-bootstrap
     /usr/bin/arch "-$architecture" "$app_dir/Contents/MacOS/Tunerfenster" --check-vlc
     codesign -dvv "$app_dir" 2> "$output_dir/signature.txt"
     if ! /usr/bin/grep -q '^Authority=Developer ID Application:' "$output_dir/signature.txt"; then

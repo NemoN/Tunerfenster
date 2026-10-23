@@ -18,8 +18,8 @@ struct Connection: Codable, Equatable, Sendable {
 
     static func initial() -> Connection {
         let arguments = ProcessInfo.processInfo.arguments
-        // A local installer can hand over an already authorised configuration
-        // through a pipe, without credentials in argv or another Documents read.
+        // Read the installer's authorised configuration from a pipe to keep
+        // credentials out of argv and avoid another Documents read.
         if arguments.contains("--import-connection-stdin") {
             return (try? fromImportData(FileHandle.standardInput.readDataToEndOfFile())) ??
                 Connection(address: "", username: "", password: "")
@@ -124,10 +124,9 @@ final class API: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     let connection: Connection
     private var session: URLSession!
 
-    init(connection: Connection) {
+    init(connection: Connection, configuration: URLSessionConfiguration = .ephemeral) {
         self.connection = connection
         super.init()
-        let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 6
         configuration.timeoutIntervalForResource = 12
         configuration.urlCredentialStorage = nil
@@ -149,6 +148,25 @@ final class API: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
 
     func read<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         let (data, response) = try await session.data(from: url(path: "api/" + path, query: query))
+        guard let response = response as? HTTPURLResponse else { throw AppError.message("invalidResponse") }
+        switch response.statusCode {
+        case 200..<300: break
+        case 401, 403: throw AppError.message("missingPermissions")
+        default: throw AppError.message("httpError", [String(response.statusCode), path])
+        }
+        do { return try JSONDecoder().decode(T.self, from: data) }
+        catch { throw AppError.message("responseUnreadable", [path]) }
+    }
+
+    func post<T: Decodable>(_ path: String, form: [URLQueryItem]) async throws -> T {
+        var request = URLRequest(url: try url(path: "api/" + path))
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        var body = URLComponents()
+        body.queryItems = form
+        // In a form body '+' means a space; URLComponents otherwise leaves it literal.
+        request.httpBody = body.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw AppError.message("invalidResponse") }
         switch response.statusCode {
         case 200..<300: break

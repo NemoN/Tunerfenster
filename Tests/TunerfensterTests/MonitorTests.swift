@@ -66,6 +66,42 @@ final class MonitorTests: XCTestCase {
         XCTAssertEqual(retuned.id, input.id)
     }
 
+    @MainActor func testServerTunerUsageCountsInputsOnceRegardlessOfPreviewAssignmentsAndViewingMode() {
+        let inputs = [
+            Input(uuid: "tv", input: input.input, subs: 3),
+            Input(uuid: "epg", input: "EPG tuner", subs: 1),
+            Input(uuid: "own", input: "Preview tuner", subs: 1),
+            Input(uuid: "unknown", input: "Unmapped tuner", subs: 2),
+            Input(uuid: "idle", input: "Idle tuner", stream: "Last tuned mux", subs: 0, signal: 55000, bps: 1000),
+            Input(uuid: "missing", input: "No subscription data")
+        ]
+        let subscriptions = [
+            subscription(), subscription(id: 2), subscription(id: 3),
+            Subscription(id: 4, service: "EPG tuner/Sat/Mux/Raw PID Subscription", title: "epggrab"),
+            Subscription(id: 5, service: "Preview tuner/" + service.path, client: previewClient),
+            Subscription(id: 6, service: "Unmapped tuner/Sat/Mux/Unknown", client: "Recorder")
+        ]
+        let monitor = Monitor()
+        defer { monitor.shutdown() }
+        monitor.connected = true
+        monitor.tuners = Snapshot.tuners(inputs: inputs, subscriptions: subscriptions, services: [service], channels: [])
+        XCTAssertEqual(monitor.busyTunerCount, 4, "Count physical inputs, including EPG, own previews and unmapped services")
+        XCTAssertEqual(monitor.liveCount, 1)
+
+        for tuner in monitor.tuners {
+            monitor.choose(StreamChoice(service: service, name: "Manual", mapped: true, multiplex: nil), for: tuner)
+        }
+        XCTAssertEqual(monitor.liveCount, 6)
+        XCTAssertEqual(monitor.busyTunerCount, 4, "A manual tile assignment must not count as another occupied tuner")
+        monitor.setViewingMode(.tv)
+        XCTAssertEqual(monitor.liveCount, 1)
+        XCTAssertEqual(monitor.busyTunerCount, 4, "TV mode must retain the full server occupancy")
+
+        let idleInputs = inputs.map { input in var idle = input; idle.subs = 0; return idle }
+        monitor.tuners = Snapshot.tuners(inputs: idleInputs, subscriptions: [], services: [service], channels: [])
+        XCTAssertEqual(monitor.busyTunerCount, 0, "Server updates must drive occupancy even while manual choices remain saved")
+    }
+
     func testReceptionFrequencyUnitsAndBandBoundary() {
         let low = Multiplex(uuid: "sat", delsys: "DVB-S2", frequency: 11_493_750, polarisation: "H")
         XCTAssertEqual(low.frequencyMHz, 11493.75)

@@ -6,50 +6,76 @@
 
 - macOS with Xcode or compatible command-line tools and Swift 5.9 or later.
 - macOS 27 or later for the current DMG packaging commands.
-- Developer ID Application certificate and private key in Keychain for a
-  distributable release. Local builds can use an ad-hoc signature.
-- A `notarytool` Keychain profile for Apple notarization.
+- A Developer ID Application certificate and its private key in Keychain to
+  sign a release. Local builds can use a pinned signing certificate or an ad-hoc
+  signature.
+- A `notarytool` Keychain profile to notarize a release.
 - Rosetta when testing an Intel build on Apple Silicon.
 
-The shipped app targets macOS 14 or later. Its bundled VideoLAN framework is
-downloaded over HTTPS from the pinned URL in `scripts/bundle-vlc.sh` and checked
-against VideoLAN's published SHA-256 checksum.
+The app runs on macOS 14 or later. The build downloads the VideoLAN framework
+over HTTPS from the pinned URL in `scripts/bundle-vlc.sh`, then checks it against
+VideoLAN's published SHA-256 checksum.
 
 ## Local build
 
 ```bash
 chmod +x ./*.sh scripts/*.sh
-SIGN_IDENTITY=- ./build-app.sh
+./build-app.sh --no-bootstrap
 open dist/Tunerfenster.app
 ```
 
-The default architecture is the build machine's architecture. An explicit
-architecture and output location can be supplied without changing the source:
+To keep Keychain access across local rebuilds, select a signing certificate once:
+
+```bash
+security find-identity -v -p codesigning
+printf '%s\n' 'YOUR_40_CHARACTER_CERTIFICATE_SHA1' > .local-signing-identity
+```
+
+Use the certificate fingerprint from the command output. This local file is
+ignored by Git and contains no private key. Keep using the same certificate
+and bundle identifier. When switching from ad-hoc signing, macOS may ask once
+more for access to the saved password; choose **Always Allow** to retain access.
+
+Local builds use the pinned identity without a timestamp. If the pinned identity
+is unavailable or invalid, the build stops. Without a pin, local builds use
+ad-hoc signing, which can require a new Keychain approval after each change.
+`SIGN_IDENTITY` explicitly overrides either choice; `SIGN_IDENTITY=-` requests
+an ad-hoc build.
+
+Each newly linked local executable gets a random Mach-O UUID. Keep the bundle
+identifier and signing certificate stable, and link a separate executable for
+any test app with a different bundle identifier. Reusing an executable UUID
+across apps can confuse local network permissions; see
+[Apple TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
+
+By default, the build uses your Mac's architecture. Set the architecture and
+output path for a different build without changing the source:
 
 ```bash
 TARGET_ARCH=arm64 APP_BUNDLE="$PWD/dist/arm64/Tunerfenster.app" ./build-app.sh --no-bootstrap
 TARGET_ARCH=x86_64 APP_BUNDLE="$PWD/dist/x86_64/Tunerfenster.app" ./build-app.sh --no-bootstrap
 ```
 
-`sign-app.sh` uses `SIGN_IDENTITY` when set. Otherwise it uses the sole available
-Developer ID Application identity, falls back to ad-hoc signing when none is
-available, and asks for an explicit choice if multiple identities exist.
-The framework is signed before the resource bundle and app. Release builds use
-Hardened Runtime, a secure timestamp and standard library validation.
+The scripts sign the framework, then the resource bundle and app. Certificate
+signatures use Hardened Runtime and standard library validation. The release
+script explicitly sets `SIGNING_MODE=release`, ignores the local pin and selects
+the Developer ID Application identity in Keychain unless `SIGN_IDENTITY` is set.
+Releases require that certificate and a secure timestamp. Local builds do not
+notarize, package a DMG, change the version or publish anything.
 
 ## Connection configuration
 
-Normal builds and releases contain no server configuration or credentials.
-Enter these in the app's Settings. For an optional local configuration, copy
-`.env.example` to a file outside the repository and launch:
+Normal builds and releases contain no server settings or credentials. Enter
+them in the app's Settings. To use a local configuration file instead, copy
+`.env.example` outside the repository and launch:
 
 ```bash
 dist/Tunerfenster.app/Contents/MacOS/Tunerfenster --env-file /absolute/path/to/local.env
 ```
 
-`./build-app.sh /absolute/path/to/local.env` can embed only that local file path
-for a private bootstrap build. The file and its contents are not copied into the
-app. `--no-bootstrap` explicitly disables this. Do not distribute bootstrap builds.
+`./build-app.sh /absolute/path/to/local.env` creates a private bootstrap build
+that stores the local file path in the app. It does not copy the file or its
+contents. `--no-bootstrap` disables this. Keep bootstrap builds private.
 
 ## Tests and playback checks
 
@@ -61,9 +87,10 @@ TVH_INTEGRATION_ENV=/absolute/path/to/local.env swift test
 TUNERFENSTER_LIVE_UPDATES=1 swift test
 ```
 
-The tests cover status matching, preview lifecycle, EPG, picons, localization,
-layout, tickets and persistent channel/viewing state. The optional live test
-does not start a stream or change server configuration.
+Tests cover status matching, stream lifecycle, EPG, picons, localization,
+layout, playback tickets and saved channel and viewing choices. The optional
+TVHeadend test reads the server APIs without starting a stream or changing
+the server configuration.
 
 ```bash
 dist/arm64/Tunerfenster.app/Contents/MacOS/Tunerfenster --check-vlc
@@ -71,32 +98,33 @@ dist/arm64/Tunerfenster.app/Contents/MacOS/Tunerfenster --check-playback /path/t
 arch -x86_64 dist/x86_64/Tunerfenster.app/Contents/MacOS/Tunerfenster --check-vlc
 ```
 
-The playback check requires a local file with audio and video and confirms
-decoded frames. It uses dummy outputs, opens no window and reads no TVHeadend
-credentials. `scripts/qa-server.py` supplies a local Digest-authenticated HTTP
-fixture for GUI checks; pass `--showcase` for the screenshot demo.
+The playback check decodes frames from a local file containing audio and video.
+It uses dummy outputs, opens no window and reads no TVHeadend credentials.
+For GUI checks, `scripts/qa-server.py` runs a local HTTP test server with Digest
+authentication. Pass `--showcase` to load the screenshot demo.
 
 ## Notarized releases
 
-Create a Keychain profile once. Enter an **app-specific password** only at the
-protected terminal prompt, not in a command argument or repository file:
+Create a Keychain profile once. Enter the app-specific password at the protected
+terminal prompt. Keep it out of command arguments and repository files:
 
 ```bash
 xcrun notarytool store-credentials Tunerfenster \
   --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
 ```
 
-With your Developer ID Application certificate available:
+Once your Developer ID Application certificate is available, run:
 
 ```bash
 ./release-all.sh --profile Tunerfenster
 ```
 
-This builds and notarizes the app for each CPU architecture, staples its ticket,
-creates a signed drag-and-drop DMG, notarizes the DMG separately and staples its
-ticket. Verification covers signatures, tickets, Gatekeeper and a fresh app copy
-from the mounted image. Set `PLAYBACK_CHECK_FILE=/path/to/test.ts` to include a
-decode check on the final app and the copy extracted from the DMG.
+The script builds, signs and notarizes the app for each CPU architecture, then
+staples its ticket. It creates a DMG with an Applications shortcut for drag-and-drop
+installation, signs and notarizes that DMG separately, then staples its ticket.
+It checks signatures, tickets and Gatekeeper, including a fresh copy of the app
+from the mounted DMG. Set `PLAYBACK_CHECK_FILE=/path/to/test.ts` to check decoding
+in both the final app and the copy from the DMG.
 
 Outputs:
 
@@ -106,9 +134,9 @@ dist/release/Tunerfenster-<version>-x86_64.dmg
 dist/release/<architecture>/Tunerfenster-<version>-<architecture>.zip
 ```
 
-Each DMG has a SHA-256 file and Apple submission/status logs. No passwords or
-signing keys are included. Keep these logs locally; upload only the intended
-installers and checksums to a GitHub release.
+Each DMG comes with a SHA-256 file and Apple's submission and status logs. These
+contain no passwords or signing keys. Keep the logs locally and upload the
+installers and checksums you want to publish to the GitHub release.
 
 Individual stages:
 
@@ -118,41 +146,42 @@ TARGET_ARCH=arm64 ./release-dmg.sh --profile Tunerfenster
 TARGET_ARCH=arm64 ./release-dmg.sh --resume Tunerfenster
 ```
 
-A pending DMG submission is protected by an upload hash and can be resumed
-without uploading again. `release-app.sh --xcode` alternatively uses the Apple
-Account signed into Xcode; `--resume` continues that Xcode export workflow.
+For a pending DMG submission, the script saves the uploaded file's hash. It
+checks that hash before resuming, so the file can stay uploaded while Apple
+processes it. You can also use `release-app.sh --xcode` with the Apple Account
+signed into Xcode. Use `--resume` to continue that Xcode export.
 
 ## Third-party source and local modifications
 
-See [VideoLAN notices](../Resources/ThirdPartyNotices.txt) for the exact official
-package, checksum, source revisions and LGPL terms. The framework's only binary
-changes are selecting one CPU slice and applying the distribution signature.
-Library replacement for local use requires re-signing the framework and then
-the app. Keep the third-party notices with redistributed copies.
+The [VideoLAN notices](../Resources/ThirdPartyNotices.txt) list the official
+package, checksum, source revisions and LGPL terms. The build selects one CPU
+slice and applies the distribution signature; it makes no other binary changes
+to the framework. To replace the library locally, re-sign the framework first,
+then the app. Include the third-party notices when redistributing a copy.
 
 ## GitHub update metadata
 
-The updater reads the public `NemoN/Tunerfenster` latest-release API. Publish a
-stable tag such as `v1.8.0` that matches the app's `CFBundleShortVersionString`,
-with both generated installers attached before publishing:
+The updater reads the public `NemoN/Tunerfenster` latest-release API. Use a
+stable tag such as `v1.9.0` that matches the app's `CFBundleShortVersionString`.
+Attach both installers before publishing:
 
 ```text
-Tunerfenster-1.8.0-arm64.dmg
-Tunerfenster-1.8.0-x86_64.dmg
+Tunerfenster-1.9.0-arm64.dmg
+Tunerfenster-1.9.0-x86_64.dmg
 ```
 
-Drafts, pre-releases, malformed versions and older versions are not offered.
-Each download must belong to that exact repository and tag and have the
-expected CPU-specific filename. If an installer is missing, the app offers
-the release page and explains the missing download. Keep this filename
-contract when preparing future releases.
+The app ignores drafts, pre-releases, invalid version numbers and older
+versions. It accepts downloads only from the expected repository and tag, with
+the filename for the detected CPU architecture. If the matching installer is
+missing, the app links to the release page and says which download is missing.
+Use these filenames for future releases.
 
-Checks use an isolated URLSession without cookies, cached credentials or
-TVHeadend configuration. Automatic attempts are spaced at least 24 hours
-apart, including failed attempts. Manual checks can retry immediately. Known
-release metadata is cached locally and re-evaluated against the installed
-version and current hardware on launch. Apple Silicon is detected even from
-an Intel process under Rosetta. Downloads and installation require user action.
+Update checks use a separate URLSession without cookies, cached credentials or
+TVHeadend configuration. Automatic attempts run at least 24 hours apart, even
+after a failed check. You can retry manually at any time. On launch, the app
+compares locally cached release data with the installed version and the Mac's
+hardware. It detects Apple Silicon even from an Intel process under Rosetta.
+The user downloads and installs updates manually.
 
 API and platform references: [GitHub Releases API](https://docs.github.com/en/rest/releases/releases)
 and [Apple's Rosetta translation detection](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment).

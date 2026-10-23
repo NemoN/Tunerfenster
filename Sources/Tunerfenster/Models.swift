@@ -153,6 +153,21 @@ struct StreamChoice: Identifiable, Sendable {
         if input.input.contains("DVB-T") { return system.hasPrefix("DVB-T") }
         return true
     }
+
+    static func current(for preview: Preview?, input: Input, choices: [StreamChoice], channels: [Channel]) -> StreamChoice? {
+        guard let preview else { return nil }
+        let compatible = choices.filter { $0.matches(input: input) }
+        if let exact = compatible.first(where: { $0.preview.path == preview.path }) { return exact }
+        guard let channel = channels.first(where: { "stream/channel/\($0.uuid)" == preview.path }) else { return nil }
+        return compatible.first { channel.services?.contains($0.id) == true }
+    }
+
+    static func adjacent(to currentID: String?, direction: Int, input: Input, choices: [StreamChoice]) -> StreamChoice? {
+        let items = choices.filter { $0.mapped && $0.matches(input: input) }
+        guard !items.isEmpty, direction != 0 else { return nil }
+        guard let index = items.firstIndex(where: { $0.id == currentID }) else { return direction > 0 ? items.first : items.last }
+        return items[(index + (direction > 0 ? 1 : -1) + items.count) % items.count]
+    }
 }
 
 struct Tuner: Identifiable, Sendable {

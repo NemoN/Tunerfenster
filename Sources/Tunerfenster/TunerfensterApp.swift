@@ -20,6 +20,7 @@ struct TunerfensterApp: App {
     @StateObject private var monitor = Monitor()
     @StateObject private var updater = UpdateChecker()
     @ObservedObject private var language = LanguageStore.shared
+    @AppStorage(AppAppearance.preferenceKey) private var appearance = AppAppearance.system
     @Environment(\.openWindow) private var openWindow
     @State private var settingsVisible = false
 
@@ -48,12 +49,13 @@ struct TunerfensterApp: App {
     }
 
     var body: some Scene {
-        Window("Tunerfenster", id: "main") {
-            MonitorView(monitor: monitor, updater: updater, settingsVisible: $settingsVisible)
+        Window("Tunerfenster \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")", id: "main") {
+            MonitorView(monitor: monitor, recordings: monitor.recordings, updater: updater, settingsVisible: $settingsVisible)
                 .environment(\.locale, language.language.locale)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(appearance.colorScheme)
                 .frame(minWidth: 700, minHeight: 460)
-                .onAppear { delegate.monitor = monitor; delegate.updater = updater; monitor.start() }
+                .onAppear { appearance.apply(); delegate.monitor = monitor; delegate.updater = updater; monitor.start() }
+                .onChange(of: appearance) { _, value in value.apply() }
                 .task { await updater.runAutomaticChecks() }
                 .sheet(isPresented: $settingsVisible) { ConnectionView(monitor: monitor, updater: updater) }
         }
@@ -71,14 +73,20 @@ struct TunerfensterApp: App {
                 }.disabled(updater.isChecking)
             }
             CommandMenu(L10n.text("playbackMenu")) {
-                Button(monitor.paused ? L10n.text("resume") : L10n.text("pauseAll")) { monitor.togglePause() }.keyboardShortcut("p")
-                Button(L10n.text("refresh")) { Task { await monitor.refresh(reloadCatalog: true) } }.keyboardShortcut("r")
+                Button(monitor.viewingMode == .recordings ? L10n.text("recordingTogglePause") : monitor.paused ? L10n.text("resume") : L10n.text("pauseAll")) {
+                    if monitor.viewingMode == .recordings { monitor.recordings.togglePause() } else { monitor.togglePause() }
+                }.keyboardShortcut("p")
+                Button(L10n.text("refresh")) { Task {
+                    if monitor.viewingMode == .recordings { await monitor.recordings.refresh() }
+                    else { await monitor.refresh(reloadCatalog: true) }
+                } }.keyboardShortcut("r")
                 Divider()
                 Button(L10n.text("followAll")) { monitor.followAll() }.disabled(monitor.savedManual.isEmpty)
             }
             CommandMenu(L10n.text("viewingMode")) {
                 Button(L10n.text("mosaicMode")) { monitor.setViewingMode(.mosaic) }.keyboardShortcut("1")
                 Button(L10n.text("tvMode")) { monitor.setViewingMode(.tv) }.keyboardShortcut("2")
+                Button(L10n.text("recordingsMode")) { monitor.setViewingMode(.recordings) }.keyboardShortcut("3")
             }
             CommandMenu(L10n.text("language")) {
                 Picker(L10n.text("language"), selection: $language.language) {
@@ -89,7 +97,7 @@ struct TunerfensterApp: App {
         Window(L10n.text("softwareUpdates"), id: "updates") {
             UpdateView(updater: updater)
                 .environment(\.locale, language.language.locale)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(appearance.colorScheme)
         }
         .windowResizability(.contentSize)
     }
@@ -98,6 +106,7 @@ struct TunerfensterApp: App {
 private struct MonitorView: View {
     @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var monitor: Monitor
+    @ObservedObject var recordings: RecordingLibrary
     @ObservedObject var updater: UpdateChecker
     @Binding var settingsVisible: Bool
     @AppStorage("onlyBusy") private var onlyBusy = false
@@ -105,6 +114,8 @@ private struct MonitorView: View {
     private var focusedID: String? { monitor.focusedID }
     @State private var availableSize = CGSize(width: 1280, height: 700)
     @State private var choosingTVChannel = false
+    @StateObject private var playbackWindow = PlaybackWindow()
+    private var videoOnly: Bool { playbackWindow.fullScreen && (focusedID != nil || monitor.viewingMode == .recordings && recordings.selected != nil) }
 
     private var visible: [Tuner] {
         if let focusedID { return monitor.tuners.filter { $0.id == focusedID } }
@@ -112,52 +123,88 @@ private struct MonitorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Circle().fill(monitor.connected ? Color.green : Color.orange).frame(width: 7, height: 7)
-                    .accessibilityLabel(monitor.connected ? L10n.text("connected") : L10n.text("disconnected"))
-                Text(monitor.connection.baseURL?.host ?? L10n.text("noServer")).font(.system(size: 13, weight: .medium))
-                Text(L10n.text("summary", L10n.text(monitor.tuners.count == 1 ? "tunerCountOne" : "tunerCountMany", String(monitor.tuners.count)), String(monitor.liveCount), String(monitor.epgCount)))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Button { monitor.followAll() } label: {
-                    Label(L10n.text("followAll"), systemImage: "arrow.triangle.2.circlepath")
-                }.help(L10n.text("followAllHelp")).disabled(monitor.savedManual.isEmpty)
-                if focusedID != nil {
-                    Button { monitor.setViewingMode(.mosaic) } label: {
-                        Label(L10n.text(monitor.viewingMode == .tv ? "mosaicMode" : "allTuners"), systemImage: "square.grid.3x3")
-                    }
-                        .keyboardShortcut(.escape, modifiers: [])
-                }
-                if monitor.paused { Label(L10n.text("paused"), systemImage: "pause.fill").font(.caption).foregroundStyle(.orange) }
+        Group {
+            if videoOnly, monitor.viewingMode == .recordings {
+                ZStack { Color.black; VideoSurface(playback: recordings.playback) }.ignoresSafeArea()
+            } else if videoOnly, let focusedID, monitor.tuners.contains(where: { $0.id == focusedID }) {
+                ZStack {
+                    Color.black
+                    VideoSurface(playback: monitor.player(for: focusedID))
+                }.ignoresSafeArea()
+            } else {
+                monitorContent
             }
-            .padding(.horizontal, 18).frame(height: 42)
+        }
+        .background(PlaybackWindowBridge(controller: playbackWindow, focused: focusedID != nil,
+                                         blocked: settingsVisible || choosingTVChannel,
+                                         leaveZoom: { monitor.setViewingMode(.mosaic) },
+                                         switchChannel: { monitor.switchFocusedChannel(direction: $0) },
+                                         toggleMute: { monitor.toggleMute() }))
+        .toolbar(videoOnly ? .hidden : .automatic, for: .windowToolbar)
+        .environmentObject(playbackWindow)
+        .task(id: monitor.viewingMode) {
+            guard monitor.viewingMode == .recordings else { return }
+            var ticks = 0
+            while !Task.isCancelled {
+                await recordings.playback.updateTimeline(fallbackDuration: recordings.selected?.recordedDuration ?? 0)
+                if ticks % 30 == 0 { await recordings.refresh() }
+                ticks += 1
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
+    }
 
-            if monitor.viewingMode == .tv, let tuner = monitor.tuners.first(where: { $0.id == focusedID }) {
+    private var monitorContent: some View {
+        VStack(spacing: 0) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    serverStatus.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    if monitor.viewingMode != .recordings { channelControls.fixedSize(horizontal: true, vertical: false) }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    serverStatus
+                    if monitor.viewingMode != .recordings { channelControls }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18).padding(.vertical, 10)
+
+            if monitor.canSelectFocusedTuner, let tuner = monitor.tuners.first(where: { $0.id == focusedID }) {
                 HStack(spacing: 12) {
-                    Picker(L10n.text("tvTuner"), selection: Binding(get: { tuner.id }, set: { monitor.selectTVTuner($0) })) {
+                    Picker(L10n.text("tvTuner"), selection: Binding(get: { tuner.id }, set: { monitor.selectFocusedTuner($0) })) {
                         ForEach(monitor.tuners) { item in Text(item.input.shortName).tag(item.id) }
                     }.frame(maxWidth: 330).help(L10n.text("tvTunerHelp"))
-                    Button { choosingTVChannel = true } label: {
-                        Label(L10n.text("chooseChannel"), systemImage: "list.bullet")
-                    }
-                    .popover(isPresented: $choosingTVChannel, arrowEdge: .bottom) {
-                        ChannelSelectionView(monitor: monitor, tuner: tuner) { choosingTVChannel = false }
-                    }
                     Spacer(minLength: 0)
                 }.padding(.horizontal, 18).padding(.bottom, 10)
             }
 
-            if let error = monitor.error {
-                notice(error.localizedDescription, symbol: "exclamationmark.triangle", color: .orange)
-            } else if let warning = monitor.catalogWarning {
-                notice(warning.localizedDescription, symbol: "exclamationmark.triangle", color: .orange)
+            if monitor.viewingMode != .recordings, let error = monitor.error {
+                notice(error.localizedDescription, symbol: "exclamationmark.triangle", color: ThemeColors.warning)
+            } else if monitor.viewingMode != .recordings, let warning = monitor.catalogWarning {
+                notice(warning.localizedDescription, symbol: "exclamationmark.triangle", color: ThemeColors.warning)
             }
             UpdateBanner(updater: updater)
+            if let allocation = monitor.tunerAllocation {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: monitor.busyTunerCount >= allocation.targetCount ? "checkmark.circle" : "info.circle")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L10n.text("allocationOccupancy", String(monitor.busyTunerCount), String(allocation.targetCount)))
+                            .font(.callout.weight(.medium))
+                        Text(L10n.text("allocationDetails", String(allocation.assignments.count)))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Button { monitor.dismissTunerAllocation() } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).accessibilityLabel(L10n.text("dismissAllocation"))
+                }.padding(.horizontal, 18).padding(.bottom, 10)
+            }
 
             GeometryReader { geometry in
                 Group {
-                if monitor.loading && monitor.tuners.isEmpty {
+                if monitor.viewingMode == .recordings {
+                    RecordingsView(library: recordings)
+                } else if monitor.loading && monitor.tuners.isEmpty {
                     placeholder(title: L10n.text("connectingServer"), detail: L10n.text("loadingTuners"), symbol: "antenna.radiowaves.left.and.right", loading: true)
                 } else if monitor.tuners.isEmpty {
                     placeholder(title: monitor.error == nil ? L10n.text("noTuners") : L10n.text("connectionUnavailable"), detail: L10n.text("checkSettings"), symbol: "antenna.radiowaves.left.and.right.slash", loading: false)
@@ -193,11 +240,12 @@ private struct MonitorView: View {
             .padding(.horizontal, 14).padding(.bottom, 10)
 
             HStack(spacing: 6) {
-                Text(monitor.paused ? L10n.text("previewsStopped") : monitor.viewingMode == .tv ? L10n.text("tvModeStatus") : monitor.manual.isEmpty ? L10n.text("followingChannels") : L10n.text("manualPreviewCount", String(monitor.manual.count)))
+                Text(monitor.viewingMode == .recordings ? L10n.text("recordingsModeStatus") : monitor.paused ? L10n.text("previewsStopped") : monitor.viewingMode == .tv ? L10n.text("tvModeStatus") : monitor.manual.isEmpty ? L10n.text("followingChannels") : L10n.text("manualPreviewCount", String(monitor.manual.count)))
                 Spacer()
                 if let update = monitor.lastUpdate {
                     Text(L10n.text("updatedAt", L10n.time(update)))
                 }
+                PollingIntervalMenu(monitor: monitor)
             }
             .font(.system(size: 11)).foregroundStyle(.secondary)
             .padding(.horizontal, 18).frame(height: 26)
@@ -205,14 +253,19 @@ private struct MonitorView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Picker(L10n.text("viewingMode"), selection: Binding(get: { monitor.viewingMode }, set: { monitor.setViewingMode($0) })) {
-                    ForEach(ViewingMode.allCases) { mode in Text(mode.title).tag(mode) }
-                }.pickerStyle(.segmented).frame(width: 150).help(L10n.text("viewingModeHelp"))
+                SymbolSegmentedPicker(title: L10n.text("viewingMode"),
+                                      options: ViewingMode.allCases.map { .init(title: $0.title, symbol: $0.symbol) },
+                                      selection: Binding(get: { ViewingMode.allCases.firstIndex(of: monitor.viewingMode) ?? 0 }, set: { index in
+                                          guard ViewingMode.allCases.indices.contains(index) else { return }
+                                          monitor.setViewingMode(ViewingMode.allCases[index])
+                                      }))
+                    .frame(width: 300).help(L10n.text("viewingModeHelp"))
                 if monitor.viewingMode == .mosaic {
-                    Picker(L10n.text("showTuners"), selection: $onlyBusy) {
-                        Text(L10n.text("all")).tag(false)
-                        Text(L10n.text("busy")).tag(true)
-                    }.pickerStyle(.segmented).frame(width: 140).help(L10n.text("filterHelp"))
+                    SymbolSegmentedPicker(title: L10n.text("showTuners"),
+                                          options: [.init(title: L10n.text("all"), symbol: "rectangle.stack"),
+                                                    .init(title: L10n.text("busy"), symbol: "antenna.radiowaves.left.and.right")],
+                                          selection: Binding(get: { onlyBusy ? 1 : 0 }, set: { onlyBusy = $0 == 1 }))
+                        .frame(width: 160).help(L10n.text("filterHelp"))
                 }
                 Menu {
                     Picker(L10n.text("language"), selection: $language.language) {
@@ -235,17 +288,61 @@ private struct MonitorView: View {
                         }
                     }
                 } label: { Label(L10n.text("grid"), systemImage: "rectangle.split.3x3") }.help(L10n.text("gridHelp")) }
-                Button { monitor.togglePause() } label: {
+                if monitor.viewingMode != .recordings { Button { monitor.togglePause() } label: {
                     Label(monitor.paused ? L10n.text("resume") : L10n.text("pause"), systemImage: monitor.paused ? "play.fill" : "pause.fill")
-                }.help(monitor.paused ? L10n.text("resumeHelp") : L10n.text("pauseHelp"))
-                Button { Task { await monitor.refresh(reloadCatalog: true) } } label: { Label(L10n.text("refresh"), systemImage: "arrow.clockwise") }
-                    .help(L10n.text("refreshHelp")).disabled(monitor.paused)
+                }.help(monitor.paused ? L10n.text("resumeHelp") : L10n.text("pauseHelp")) }
+                Button { Task {
+                    if monitor.viewingMode == .recordings { await recordings.refresh() }
+                    else { await monitor.refresh(reloadCatalog: true) }
+                } } label: { Label(L10n.text("refresh"), systemImage: "arrow.clockwise") }
+                    .help(L10n.text(monitor.viewingMode == .recordings ? "refreshRecordings" : "refreshHelp"))
+                    .disabled(monitor.viewingMode == .recordings ? recordings.loading : monitor.paused)
                 Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: { Label(L10n.text("fullScreen"), systemImage: "arrow.up.left.and.arrow.down.right") }.help(L10n.text("fullScreenHelp"))
+                AppearanceButton()
                 Button { settingsVisible = true } label: { Label(L10n.text("settings"), systemImage: "gearshape") }.help(L10n.text("serverHelp"))
             }
         }
         .onChange(of: monitor.focusedID) { _, _ in choosingTVChannel = false }
         .onChange(of: language.language) { _, _ in monitor.updateProgramme() }
+    }
+
+    private var serverStatus: some View {
+        HStack(spacing: 12) {
+            Circle().fill(monitor.connected ? Color.green : Color.orange).frame(width: 7, height: 7)
+                .accessibilityLabel(monitor.connected ? L10n.text("connected") : L10n.text("disconnected"))
+            Text(monitor.connection.baseURL?.host ?? L10n.text("noServer")).font(.system(size: 13, weight: .medium))
+            TunerStatusSummary(monitor: monitor)
+        }
+    }
+
+    private var channelControls: some View {
+        HStack(spacing: 8) {
+            if let tuner = monitor.tuners.first(where: { $0.id == focusedID }) {
+                Button { monitor.switchFocusedChannel(direction: -1) } label: { Image(systemName: "chevron.up") }
+                    .help(L10n.text("previousChannelHelp")).accessibilityLabel(L10n.text("previousChannel"))
+                    .disabled(!monitor.canSwitchFocusedChannel)
+                Button { monitor.switchFocusedChannel(direction: 1) } label: { Image(systemName: "chevron.down") }
+                    .help(L10n.text("nextChannelHelp")).accessibilityLabel(L10n.text("nextChannel"))
+                    .disabled(!monitor.canSwitchFocusedChannel)
+                Button { choosingTVChannel = true } label: { Label(L10n.text("chooseChannel"), systemImage: "list.bullet") }
+                    .popover(isPresented: $choosingTVChannel, arrowEdge: .bottom) {
+                        ChannelSelectionView(monitor: monitor, tuner: tuner) { choosingTVChannel = false }
+                    }
+            }
+            if monitor.viewingMode == .mosaic {
+                Button { monitor.occupyAllTuners() } label: {
+                    Label(L10n.text("occupyAllTuners"), systemImage: "antenna.radiowaves.left.and.right")
+                }.help(L10n.text("occupyAllTunersHelp")).disabled(!monitor.canOccupyAllTuners)
+                Button { monitor.followAll() } label: { Label(L10n.text("followAll"), systemImage: "arrow.triangle.2.circlepath") }
+                    .help(L10n.text("followAllHelp")).disabled(monitor.savedManual.isEmpty)
+                if focusedID != nil {
+                    Button { monitor.setViewingMode(.mosaic) } label: {
+                        Label(L10n.text("allTuners"), systemImage: "square.grid.3x3")
+                    }
+                }
+            }
+            if monitor.paused { Label(L10n.text("paused"), systemImage: "pause.fill").font(.caption).foregroundStyle(ThemeColors.warning) }
+        }
     }
 
     private func notice(_ text: String, symbol: String, color: Color) -> some View {
@@ -277,6 +374,7 @@ private struct TunerTile: View {
     let toggleFocus: () -> Void
     @State private var choosingChannel = false
     @State private var showingReception = false
+    @State private var showingStatistics = false
     @AppStorage("lnbSwitchMHz") private var switchMHz = 11700.0
 
     private var preview: Preview? { monitor.preview(for: tuner) }
@@ -292,8 +390,8 @@ private struct TunerTile: View {
         return tuner.hasEPG ? "EPG" : L10n.text("idle")
     }
     private var stateColor: Color {
-        if !monitor.connected || monitor.paused || tuner.unresolvedTV || monitor.savedManual[tuner.id] != nil && preview == nil { return .orange }
-        return preview != nil || tuner.hasOwnPreview ? .green : .secondary
+        if !monitor.connected || monitor.paused || tuner.unresolvedTV || monitor.savedManual[tuner.id] != nil && preview == nil { return ThemeColors.warning }
+        return preview != nil || tuner.hasOwnPreview ? ThemeColors.active : .secondary
     }
 
     var body: some View {
@@ -315,10 +413,20 @@ private struct TunerTile: View {
                     .popover(isPresented: $showingReception, arrowEdge: .bottom) {
                         ReceptionDetailsView(monitor: monitor, tuner: tuner)
                     }
-                Button(action: toggleFocus) {
+                if monitor.viewingMode != .tv { Button(action: toggleFocus) {
                     Image(systemName: focused ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 }.buttonStyle(.plain).help(focused ? L10n.text("showAllTuners") : L10n.text("enlargeTuner"))
-                    .accessibilityLabel(focused ? L10n.text("showAllTuners") : L10n.text("enlargeNamedTuner", tuner.input.shortName))
+                    .accessibilityLabel(focused ? L10n.text("showAllTuners") : L10n.text("enlargeNamedTuner", tuner.input.shortName)) }
+                if focused {
+                    Button { showingStatistics.toggle() } label: {
+                        Image(systemName: "chart.bar.xaxis")
+                            .foregroundStyle(showingStatistics ? Color.accentColor : .primary)
+                    }
+                    .buttonStyle(.plain).disabled(!active)
+                    .help(L10n.text(showingStatistics ? "hideStreamStatistics" : "showStreamStatistics"))
+                    .accessibilityLabel(L10n.text(showingStatistics ? "hideStreamStatistics" : "showStreamStatistics"))
+                    .accessibilityValue(L10n.text(showingStatistics ? "visible" : "hidden"))
+                }
             }.padding(.horizontal, 10).frame(height: 28)
 
             ZStack {
@@ -332,7 +440,7 @@ private struct TunerTile: View {
                         }.padding(12).allowsHitTesting(false)
                     }
                     VStack {
-                        if monitor.manual[tuner.id] != nil {
+                        if !focused && monitor.manual[tuner.id] != nil {
                             Text(L10n.text("previewVia", manualSources)).font(.system(size: 10))
                                 .lineLimit(1).help(L10n.text("manualRoutingNote"))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -355,6 +463,7 @@ private struct TunerTile: View {
                             Button { monitor.toggleAudio(tuner.id) } label: {
                                 Image(systemName: monitor.audioID == tuner.id ? "speaker.wave.2.fill" : "speaker.slash.fill")
                             }.buttonStyle(.plain).help(monitor.audioID == tuner.id ? L10n.text("muteHelp") : L10n.text("unmuteHelp"))
+                                .accessibilityValue(L10n.text(monitor.audioID == tuner.id ? "audioOn" : "audioMuted"))
                                 .accessibilityLabel(L10n.text("audioForChannel", preview?.title ?? tuner.input.shortName))
                         }
                         .padding(.horizontal, 9).padding(.vertical, 7).background(.black.opacity(0.78))
@@ -370,9 +479,18 @@ private struct TunerTile: View {
                     }.padding(8).multilineTextAlignment(.center)
                 }
             }
+            .overlay(alignment: .topLeading) {
+                if focused && active && showingStatistics {
+                    StreamStatisticsOverlay(playback: playback) { showingStatistics = false }
+                        .padding(10).padding(.bottom, 36)
+                }
+            }
+            .environment(\.colorScheme, .dark)
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
             .contentShape(Rectangle()).onTapGesture(count: 2, perform: toggleFocus)
 
+            if !focused {
             Text(receptionSummary).font(.system(size: 10, weight: .medium)).monospacedDigit()
                 .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10).frame(height: 20)
@@ -389,10 +507,11 @@ private struct TunerTile: View {
                 }
             }.font(.system(size: 10)).foregroundStyle(.secondary).monospacedDigit()
                 .padding(.horizontal, 10).frame(height: 28)
+            }
         }
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(monitor.audioID == tuner.id ? Color.accentColor : .white.opacity(0.12), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(!focused && monitor.audioID == tuner.id ? Color.accentColor : .primary.opacity(0.12), lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(tuner.input.shortName), \(state), \(preview?.title ?? "")")
     }
@@ -419,6 +538,7 @@ private struct TunerTile: View {
 
 private struct ConnectionView: View {
     @ObservedObject private var language = LanguageStore.shared
+    @AppStorage(AppAppearance.preferenceKey) private var appearance = AppAppearance.system
     @ObservedObject var monitor: Monitor
     @ObservedObject var updater: UpdateChecker
     @Environment(\.dismiss) private var dismiss
@@ -434,11 +554,15 @@ private struct ConnectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(L10n.text("serverConnection")).font(.title2.weight(.semibold))
+            Text(L10n.text("settings")).font(.title2.weight(.semibold))
             Picker(L10n.text("language"), selection: $language.language) {
                 ForEach(AppLanguage.allCases) { option in LanguageOption(language: option).tag(option) }
             }
             .help(L10n.text("languageNote"))
+            Picker(L10n.text("appearance"), selection: $appearance) {
+                ForEach(AppAppearance.allCases) { option in Text(option.title).tag(option) }
+            }
+            .help(L10n.text("appearanceNote"))
             Form {
                 TextField(L10n.text("serverAddress"), text: $draft.address, prompt: Text("http://tvheadend.local:9981"))
                 TextField(L10n.text("username"), text: $draft.username)
@@ -461,8 +585,10 @@ private struct ConnectionView: View {
             }
             Text(L10n.text("bandSwitchNote")).font(.caption).foregroundStyle(.secondary)
             Divider()
+            PollingSettingsView(monitor: monitor)
+            Divider()
             UpdateSettingsView(updater: updater)
-            if let error { Text(error.localizedDescription).font(.callout).foregroundStyle(.orange) }
+            if let error { Text(error.localizedDescription).font(.callout).foregroundStyle(ThemeColors.warning) }
             HStack {
                 Spacer()
                 Button(L10n.text("cancel")) { dismiss() }.keyboardShortcut(.cancelAction)

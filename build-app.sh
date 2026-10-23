@@ -5,7 +5,17 @@ bootstrap_env="${1:-}"
 if [ "$bootstrap_env" = "--no-bootstrap" ]; then bootstrap_env=""; fi
 architecture="${TARGET_ARCH:-$(uname -m)}"
 case "$architecture" in arm64|x86_64) ;; *) printf 'Unsupported architecture: %s\n' "$architecture" >&2; exit 2 ;; esac
+# Resolve once before building. A missing pinned certificate must not silently
+# change the app's identity or leave a complete build waiting for configuration.
+export SIGNING_MODE="${SIGNING_MODE:-local}"
+SIGN_IDENTITY=$(./scripts/signing-identity.sh)
+export SIGN_IDENTITY
 build_options=(-c release --triple "$architecture-apple-macosx14.0" --scratch-path "$PWD/.build/$architecture")
+if [ "$SIGNING_MODE" = local ]; then
+    # Local network privacy also tracks LC_UUID. Keep each newly linked local
+    # executable distinct from separately packaged test apps (Apple TN3179).
+    build_options+=(-Xlinker -random_uuid)
+fi
 swift build "${build_options[@]}"
 bin_dir=$(swift build "${build_options[@]}" --show-bin-path)
 app_dir="${APP_BUNDLE:-$PWD/dist/Tunerfenster.app}"
@@ -26,10 +36,10 @@ app = pathlib.Path(sys.argv[1])
 info = {
     'CFBundleName': 'Tunerfenster', 'CFBundleDisplayName': 'Tunerfenster',
     'CFBundleIdentifier': 'de.local.Tunerfenster', 'CFBundleExecutable': 'Tunerfenster',
-    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '1.8.0',
+    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '1.9.0',
     'CFBundleDevelopmentRegion': 'en', 'CFBundleLocalizations': ['en', 'de'],
     'CFBundleIconFile': 'AppIcon',
-    'CFBundleVersion': '11', 'LSMinimumSystemVersion': '14.0',
+    'CFBundleVersion': '12', 'LSMinimumSystemVersion': '14.0',
     'NSPrincipalClass': 'NSApplication', 'NSHighResolutionCapable': True,
     'NSLocalNetworkUsageDescription': 'Tunerfenster liest den Status deines TVHeadend-Servers und zeigt laufende TV-Streams im lokalen Netzwerk.',
     'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},

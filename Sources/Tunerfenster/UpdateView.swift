@@ -108,10 +108,10 @@ struct UpdateView: View {
             }
             if let failure = updater.failure {
                 Label(failure.message, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(ThemeColors.warning).fixedSize(horizontal: false, vertical: true)
             }
             if openingFailed {
-                Text(L10n.text("updateOpenFailed")).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Text(L10n.text("updateOpenFailed")).foregroundStyle(ThemeColors.warning).fixedSize(horizontal: false, vertical: true)
             }
             Divider()
             UpdatePreference(updater: updater)

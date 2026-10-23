@@ -8,6 +8,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.local-signing-identity
 *.p12
 *.p8
 *.key

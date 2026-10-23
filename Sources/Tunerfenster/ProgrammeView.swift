@@ -10,13 +10,20 @@ struct FocusedTunerView: View {
             if geometry.size.width >= 1000 {
                 HStack(alignment: .top, spacing: 14) {
                     tile.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    ProgrammeView(monitor: monitor, tuner: tuner).frame(width: 320, height: geometry.size.height)
+                    VStack(spacing: 10) {
+                        ProgrammeView(monitor: monitor, tuner: tuner).frame(maxHeight: .infinity)
+                        FocusedReceptionView(monitor: monitor, tuner: tuner)
+                    }.frame(width: 320, height: geometry.size.height)
                 }
             } else {
                 VStack(spacing: 10) {
                     tile.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    ProgrammeView(monitor: monitor, tuner: tuner)
-                        .frame(height: min(220, max(130, geometry.size.height * 0.38)))
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            ProgrammeView(monitor: monitor, tuner: tuner, scrolls: false)
+                            FocusedReceptionView(monitor: monitor, tuner: tuner)
+                        }
+                    }.frame(height: min(300, max(130, geometry.size.height * 0.42)))
                 }
             }
         }
@@ -27,6 +34,7 @@ struct ProgrammeView: View {
     @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var monitor: Monitor
     let tuner: Tuner
+    var scrolls = true
     @State private var logo: (key: String, image: NSImage)?
 
     private var logoKey: String {
@@ -36,7 +44,23 @@ struct ProgrammeView: View {
     }
 
     var body: some View {
-        ScrollView {
+        Group {
+            if scrolls { ScrollView { programmeContent } }
+            else { programmeContent }
+        }
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.text("programmeGuide"))
+        .task(id: logoKey) {
+            let key = logoKey
+            guard let channel = monitor.programmeChannel else { logo = nil; return }
+            let image = await monitor.channelIcon(for: channel)
+            guard !Task.isCancelled else { return }
+            logo = image.map { (key, $0) }
+        }
+    }
+
+    private var programmeContent: some View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .center, spacing: 12) {
                     Text(L10n.text("programmeFor", monitor.preview(for: tuner)?.title ?? tuner.input.shortName))
@@ -70,6 +94,12 @@ struct ProgrammeView: View {
                             if let current {
                                 programme(current, label: "programmeNow", prominent: true)
                                 ProgressView(value: current.progress(at: context.date)).accessibilityLabel(L10n.text("programmeProgress"))
+                                if monitor.viewingMode == .tv {
+                                    ProgrammeRecordingControls(recorder: monitor.recorder, event: current,
+                                                               connected: monitor.connected && !monitor.paused) {
+                                        monitor.updateProgramme(force: true)
+                                    }
+                                }
                                 if let details = current.details {
                                     Text(details).font(.callout).lineSpacing(3).textSelection(.enabled)
                                 }
@@ -86,17 +116,6 @@ struct ProgrammeView: View {
                     }
                 }
             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n.text("programmeGuide"))
-        .task(id: logoKey) {
-            let key = logoKey
-            guard let channel = monitor.programmeChannel else { logo = nil; return }
-            let image = await monitor.channelIcon(for: channel)
-            guard !Task.isCancelled else { return }
-            logo = image.map { (key, $0) }
-        }
     }
 
     private func message(_ text: String) -> some View {
@@ -121,5 +140,99 @@ struct ProgrammeView: View {
 
     private func time(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(language.language.locale))
+    }
+}
+
+private struct ProgrammeRecordingControls: View {
+    @ObservedObject var recorder: Recorder
+    let event: Programme
+    let connected: Bool
+    let refreshProgramme: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @FocusState private var buttonFocused: Bool
+    private var key: String { Recorder.key(event) }
+    private var recording: Bool { recorder.isRecording(event) }
+    private var busy: Bool { recorder.pending.contains(key) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if recording {
+                if !reduceMotion && scenePhase != .background {
+                    TimelineView(.periodic(from: .now, by: 0.8)) { context in
+                        let pulse = Int(context.date.timeIntervalSince1970 / 0.8).isMultiple(of: 2)
+                        recordingButton(tint: pulse ? ThemeColors.recording : ThemeColors.recordingPulse)
+                            .animation(.easeInOut(duration: 0.6), value: pulse)
+                    }
+                } else {
+                    recordingButton(tint: ThemeColors.recording)
+                }
+                Text(L10n.text("recordingActive")).font(.caption).foregroundStyle(.secondary)
+            } else if let uuid = event.dvrUuid, recorder.stopped.contains(uuid) {
+                Label(L10n.text("recordingStopped"), systemImage: "checkmark.circle").font(.callout)
+                Text(L10n.text("recordingKept")).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if event.hasRecording || recorder.submitted.contains(key) {
+                Label(L10n.text(event.hasRecording ? "recordingExists" : "recordingRequested"), systemImage: "checkmark.circle")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                recordingButton(tint: ThemeColors.recording)
+                if recorder.checking {
+                    ProgressView(L10n.text("recordingChecking")).controlSize(.small)
+                } else if let error = recorder.availabilityError {
+                    Text(error.localizedDescription).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(L10n.text("recordingCheckAgain")) { Task { await recorder.refreshAvailability(force: true) } }
+                        .font(.caption)
+                }
+            }
+            if event.recordingHasError {
+                Label(L10n.text("recordingServerError"), systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(ThemeColors.warning).fixedSize(horizontal: false, vertical: true)
+            }
+            if let error = recorder.errors[key] {
+                Text(error.localizedDescription).font(.caption).foregroundStyle(ThemeColors.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .onAppear { Task { await recorder.refreshAvailability() } }
+    }
+
+    private func recordingButton(tint: Color) -> some View {
+        Button {
+            let stop = recording
+            Task {
+                if stop { await recorder.stop(event) }
+                else { await recorder.record(event) }
+                refreshProgramme()
+            }
+        } label: {
+            Label(L10n.text(recording ? (busy ? "recordingStopping" : "stopRecording") : (busy ? "recordingRequesting" : "recordUntilEnd")),
+                  systemImage: recording ? "stop.fill" : "record.circle")
+        }
+        .buttonStyle(RecordingButtonStyle(color: tint))
+        .focused($buttonFocused)
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(buttonFocused ? Color.accentColor : .clear, lineWidth: 2))
+        .disabled(!connected || (recording ? !recorder.canStop(event) : !recorder.canRecord(event)))
+        .help(L10n.text(recording ? "stopRecordingHelp" : "recordUntilEndHelp"))
+        .accessibilityValue(recording ? L10n.text("recordingActive") : "")
+    }
+}
+
+private struct RecordingButtonStyle: ButtonStyle {
+    let color: Color
+    @Environment(\.isEnabled) private var enabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.callout.weight(.medium))
+            .padding(.horizontal, 11).padding(.vertical, 6)
+            .foregroundStyle(.white)
+            .background {
+                RoundedRectangle(cornerRadius: 6).fill(color)
+                    .brightness(configuration.isPressed ? -0.12 : 0)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .opacity(enabled ? 1 : 0.45)
     }
 }

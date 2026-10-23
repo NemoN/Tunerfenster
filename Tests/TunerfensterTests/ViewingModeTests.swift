@@ -8,6 +8,35 @@ final class ViewingModeTests: XCTestCase {
               hasEPG: false, unresolvedTV: false)
     }
 
+    @MainActor func testMuteShortcutTargetsFocusedStreamAndSurvivesStatusRefresh() {
+        let monitor = Monitor()
+        let a = tuner("A"), b = tuner("B"), idle = tuner("Idle", active: false)
+        monitor.tuners = [idle, a, b]; monitor.connected = true
+        monitor.toggleMute()
+        XCTAssertEqual(monitor.audioID, a.id, "In the mosaic M starts audio on the first active stream")
+        monitor.toggleMute()
+        XCTAssertNil(monitor.audioID)
+        monitor.focus(b.id)
+        XCTAssertEqual(monitor.audioID, b.id)
+        monitor.toggleMute()
+        monitor.updateFocusedAudio()
+        XCTAssertNil(monitor.audioID, "Polling must preserve an explicit mute")
+        monitor.toggleMute()
+        XCTAssertEqual(monitor.audioID, b.id)
+        monitor.focus(idle.id)
+        monitor.toggleMute()
+        XCTAssertNil(monitor.audioID, "An idle focused tuner must not unmute another stream")
+        monitor.focus(b.id)
+        monitor.togglePause()
+        monitor.toggleMute()
+        XCTAssertNil(monitor.audioID)
+        monitor.connected = false
+        monitor.paused = false
+        monitor.toggleMute()
+        XCTAssertNil(monitor.audioID)
+        monitor.shutdown()
+    }
+
     @MainActor func testTVPlaysOnlySelectedTunerAndMosaicRestoresAssignmentsMuted() throws {
         let suite = "TunerfensterModes.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -27,9 +56,10 @@ final class ViewingModeTests: XCTestCase {
         XCTAssertEqual(monitor.playbackTuners.map(\.id), [b.id])
         XCTAssertEqual(monitor.liveCount, 1)
         XCTAssertEqual(monitor.audioID, b.id)
-        monitor.selectTVTuner(a.id)
-        XCTAssertEqual(monitor.playbackTuners.map(\.id), [a.id])
-        XCTAssertEqual(monitor.audioID, a.id)
+        XCTAssertFalse(monitor.canSelectFocusedTuner)
+        monitor.selectFocusedTuner(a.id)
+        XCTAssertEqual(monitor.playbackTuners.map(\.id), [b.id], "Manual TV playback cannot switch tuner slots")
+        XCTAssertEqual(monitor.audioID, b.id)
         monitor.setViewingMode(.mosaic)
         XCTAssertNil(monitor.focusedID)
         XCTAssertNil(monitor.audioID)
@@ -37,9 +67,9 @@ final class ViewingModeTests: XCTestCase {
         XCTAssertEqual(monitor.liveCount, 2)
         XCTAssertEqual(monitor.savedManual, assignments)
         monitor.setViewingMode(.tv)
-        XCTAssertEqual(monitor.focusedID, a.id, "Returning to TV remembers its last tuner")
-        monitor.selectTVTuner("missing")
-        XCTAssertEqual(monitor.focusedID, a.id)
+        XCTAssertEqual(monitor.focusedID, b.id, "Returning to TV remembers its last tuner")
+        monitor.selectFocusedTuner("missing")
+        XCTAssertEqual(monitor.focusedID, b.id)
         monitor.shutdown()
     }
 
@@ -66,6 +96,64 @@ final class ViewingModeTests: XCTestCase {
         monitor.shutdown()
     }
 
+    @MainActor func testFocusedTunerSelectionIsAvailableOnlyWhileFollowingInTVAndZoom() {
+        for mode in [ViewingMode.mosaic, .tv] {
+            let monitor = Monitor()
+            let a = tuner("A"), b = tuner("B")
+            monitor.tuners = [a, b]; monitor.connected = true
+            XCTAssertFalse(monitor.canSelectFocusedTuner)
+            monitor.selectFocusedTuner(b.id)
+            XCTAssertNil(monitor.focusedID, "The tuner selector must not open zoom from the mosaic")
+
+            monitor.setViewingMode(mode)
+            monitor.focus(a.id)
+            XCTAssertTrue(monitor.canSelectFocusedTuner)
+            monitor.selectFocusedTuner(b.id)
+            XCTAssertEqual(monitor.focusedID, b.id)
+            XCTAssertEqual(monitor.viewingMode, mode, "Selecting a tuner must preserve TV or mosaic zoom")
+            XCTAssertEqual(monitor.audioID, b.id)
+            XCTAssertEqual(monitor.playbackTuners.count, mode == .tv ? 1 : 2)
+
+            let choice = StreamChoice(service: Service(uuid: "manual"), name: "Manual", mapped: true, multiplex: nil)
+            monitor.choose(choice, for: b)
+            XCTAssertFalse(monitor.canSelectFocusedTuner)
+            monitor.selectFocusedTuner(a.id)
+            XCTAssertEqual(monitor.focusedID, b.id)
+            XCTAssertEqual(monitor.savedManual[b.id], choice.id, "A blocked tuner change must preserve the manual channel")
+
+            monitor.choose(nil, for: b)
+            XCTAssertTrue(monitor.canSelectFocusedTuner, "Returning to following restores the tuner selector")
+            monitor.selectFocusedTuner("missing")
+            XCTAssertEqual(monitor.focusedID, b.id)
+            monitor.selectFocusedTuner(a.id)
+            XCTAssertEqual(monitor.focusedID, a.id)
+            monitor.shutdown()
+        }
+    }
+
+    @MainActor func testUnresolvedSavedChannelKeepsTunerSelectionHiddenUntilFollowingIsRestored() throws {
+        let suite = "TunerfensterFollowing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = SelectionStore(defaults: defaults)
+        let connection = Connection(address: "http://localhost:9981", username: "user", password: "secret")
+        let scope = try XCTUnwrap(SelectionStore.scope(for: connection))
+        store.save(["B": "unavailable-channel"], scope: scope)
+        let monitor = Monitor(selectionStore: store, preferences: defaults)
+        monitor.loadSelections(for: connection)
+        monitor.tuners = [tuner("A"), tuner("B")]; monitor.connected = true
+        monitor.focus("B")
+        XCTAssertTrue(monitor.manual.isEmpty)
+        XCTAssertFalse(monitor.canSelectFocusedTuner)
+        monitor.selectFocusedTuner("A")
+        XCTAssertEqual(monitor.focusedID, "B")
+        monitor.followAll()
+        XCTAssertTrue(monitor.canSelectFocusedTuner)
+        monitor.selectFocusedTuner("A")
+        XCTAssertEqual(monitor.focusedID, "A")
+        monitor.shutdown()
+    }
+
     @MainActor func testRestartRestoresTVTunerDespiteChangedMuxUUIDAndRemainsMutedAcrossPollingAndReconnect() throws {
         let suite = "TunerfensterRestore.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -76,7 +164,7 @@ final class ViewingModeTests: XCTestCase {
         first.loadSelections(for: connection)
         first.tuners = [tuner("A"), tuner("B")]; first.connected = true
         first.setViewingMode(.tv)
-        first.selectTVTuner("B")
+        first.selectFocusedTuner("B")
         first.shutdown()
 
         let restarted = Monitor(selectionStore: SelectionStore(defaults: defaults))
@@ -97,7 +185,7 @@ final class ViewingModeTests: XCTestCase {
         XCTAssertEqual(restarted.audioID, "B")
         restarted.toggleAudio("B"); restarted.updateFocusedAudio()
         XCTAssertNil(restarted.audioID, "An explicit mute still survives polling")
-        restarted.selectTVTuner("A")
+        restarted.selectFocusedTuner("A")
         XCTAssertEqual(restarted.audioID, "A", "An explicit tuner change retains normal TV audio behavior")
         restarted.shutdown()
     }
@@ -153,7 +241,7 @@ final class ViewingModeTests: XCTestCase {
         monitor.tuners = [tuner("A"), tuner("B")]; monitor.ensureTVSelection()
         XCTAssertEqual(monitor.focusedID, "B")
         XCTAssertNil(monitor.audioID)
-        monitor.selectTVTuner("A")
+        monitor.selectFocusedTuner("A")
         monitor.ensureTVSelection()
         XCTAssertEqual(monitor.focusedID, "A")
         XCTAssertEqual(store.loadViewingState(scope: scope).tunerID, "A")

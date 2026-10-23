@@ -4,18 +4,18 @@
 
 <img src="docs/icon.png" width="96" height="96" alt="Tunerfenster icon">
 
-A native macOS viewer for TVHeadend. Watch your tuners together in a mosaic or
-switch to a single-channel TV view with a programme guide and channel logo.
-The VLC playback engine is included.
+Tunerfenster is a native macOS app for watching TVHeadend streams. Show your
+tuners in a mosaic, watch one channel with its programme guide and logo, or play
+recordings stored on the server.
 
 ## Download
 
-**macOS 14 or later. No separate VLC installation required.**
+Requires macOS 14 or later. VLC is included.
 
 | Your Mac | Signed and notarized installer |
 | --- | --- |
-| Apple Silicon — M1 or newer | [Download arm64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.8.0-arm64.dmg) |
-| Intel — 64-bit | [Download x64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.8.0-x86_64.dmg) |
+| Apple Silicon (M1 or newer) | [Download arm64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.9.0-arm64.dmg) |
+| Intel (64-bit) | [Download x64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.9.0-x86_64.dmg) |
 
 [All releases and SHA-256 checksums](https://github.com/NemoN/Tunerfenster/releases)
 
@@ -23,12 +23,12 @@ The VLC playback engine is included.
 2. Start the app and open **Tunerfenster → Settings**.
 3. Enter your TVHeadend URL, username and password, then connect.
 
-Existing settings survive an update. Every launch starts muted.
+Updates keep your settings. The app starts muted.
 
 ## Screenshots
 
-Screenshots use a local demo server, fictitious channels and generated test
-signals. They contain no broadcast footage or private server configuration.
+The screenshots show a local demo server with fictitious channels and generated
+test signals. They contain no broadcast footage or private server configuration.
 
 ### Tuner mosaic
 
@@ -44,91 +44,130 @@ signals. They contain no broadcast footage or private server configuration.
 
 ## Features
 
-- **Mosaic and TV modes:** fit all tuners into the window, or play only the
-  selected tuner preview with current/next EPG, description and progress.
-- **Follow active tuners:** automatically show services already running on the
-  server. Idle tuners and EPG scans have distinct states.
-- **Manual channel selection:** choose a channel for any tile and return all
-  manual assignments to following with one button.
-- **Reception information:** frequency, V/H, LOW/HIGH, delivery system,
+- The mosaic fits all tuners into the window. TV mode plays only the selected
+  tuner. The programme guide shows the current and next programmes, descriptions
+  and programme progress.
+- Automatic tiles show channels already running on the server. Idle tuners and
+  EPG scans have their own status labels.
+- You can choose a channel for each tile. The selector opens at the current
+  channel; double-click a row or use **Switch channel** to change it. **Follow
+  all** resets manual assignments.
+- Reception details include frequency, V/H, LOW/HIGH, delivery system,
   modulation, symbol rate, FEC, orbital position, signal, SNR and continuity
-  errors, when supplied by TVHeadend.
-- **Channel logos:** use the picons configured in TVHeadend, including SRP
-  picons, beside the channel name in the enlarged view.
-- **Focused audio:** enlarge a tile to hear its audio; return to the mosaic to
-  mute it. Manual mute remains available.
-- **Saved choices:** restore manual channels, viewing mode and the selected
-  TV tuner per server/account, including after temporary outages.
-- **English and German:** switch language inside the app; menus, settings and
-  status messages follow the selection.
-- **Self-contained playback:** bundled VLCKit 3.7.4 / libVLC 3.0.24, with
-  separate Apple Silicon and Intel builds.
+  errors, where TVHeadend supplies them.
+- Picons from TVHeadend, including SRP picons, appear beside the channel name
+  in the enlarged view.
+- Enlarging a tile turns on its audio. Returning to the mosaic mutes it. You
+  can also mute it manually or press **M** to toggle audio. In the mosaic,
+  **M** unmutes the first active stream if all streams are muted.
+- The statistics icon above the enlarged video opens VLC's input, demux,
+  video and audio counters over the picture. It refreshes once per second.
+- The app remembers manual channels, viewing mode and the selected TV tuner
+  for each server and account. These choices survive temporary outages.
+- You can switch between English and German in the app. Menus, settings and
+  status messages use the selected language.
+- Clicking the appearance icon just before Settings cycles through **Follow
+  system**, **Light** and **Dark**. The app saves your choice.
+- In the TV mode programme guide, **Record** starts a
+  recording on TVHeadend. Your account needs recording permission and an active
+  recording profile. The EPG end time and the profile's extra recording time
+  determine when it stops. Existing recordings are shown in the guide. The red
+  button pulses while recording. **Stop recording** ends it and keeps the file
+  recorded so far.
+- Channel up/down and **Choose channel** come before **Use all tuners**.
+  In the single-channel view, frequency, signal, SNR, bitrate and CC errors
+  appear below the programme guide.
+- Playback uses VLCKit 3.7.4 / libVLC 3.0.24. Separate builds are available for
+  Apple Silicon and Intel.
+- **Recordings** lists recorded programmes and recordings in progress. Search
+  by title or channel, then select a recording to play it. The player has pause,
+  seeking and mute controls. An approximate duration from TVHeadend is marked
+  **≈** when VLC cannot determine the file duration. Unavailable files are labelled.
+  Switching to Recordings stops the app's live streams and keeps your channel assignments.
+
+The title bar shows the installed version. To change how often the app refreshes
+the tuner status, choose an interval from 1 to 60 seconds in Settings or at the
+bottom right of the window. The app saves it automatically.
+
+In the enlarged view, **↑ / ↓** and the arrow buttons switch channels in list
+order, wrapping at either end. Full screen shows only the video. Press **Esc**
+to leave full screen, then **Esc** again to return to the mosaic.
+Use **⌘1**, **⌘2** and **⌘3** to switch between Mosaic, TV and Recordings.
+The app remembers the last mode. Selecting a recording starts its audio;
+**M** toggles mute. **⌘P** pauses or resumes recording playback.
 
 ## Software updates
 
-Tunerfenster checks the public GitHub releases once a day while it is running.
-A small notice appears when a newer stable version is available. Choose
-**View Update** to see the matching Apple Silicon or Intel DMG, including
-when the Intel app is running under Rosetta on an Apple Silicon Mac.
+While running, Tunerfenster checks GitHub once a day for a newer stable release.
+When one is available, **View update** offers the DMG for your Mac. It detects
+Apple Silicon even when the Intel app is running under Rosetta.
 
-Use **Tunerfenster → Check for Updates…** at any time. Automatic checks can be
-disabled in Settings or the Software Updates window. Downloads open in your
-browser; quit the app and replace it from the DMG. Your settings are preserved.
-The check sends no TVHeadend address, credentials or tuner information to GitHub.
-It does not install updates automatically.
+You can check at any time with **Tunerfenster → Check for Updates…**, or turn off
+automatic checks in Settings or the Software Updates window. To install an
+update, download the DMG in your browser, quit Tunerfenster and replace the app.
+Your settings stay saved. Installation is manual. The update check sends no
+TVHeadend address, credentials or tuner information to GitHub.
 
 ## How it works
 
-Tunerfenster reads TVHeadend's status, service, channel and EPG APIs and opens
-low-priority HTTP previews using short-lived playback tickets. Automatic tiles
-stop when the external viewing session ends. TV mode stops the other previews.
-The app does not modify tuner, channel or recording configuration.
+Tunerfenster reads TVHeadend's status, service, channel and EPG APIs. It opens
+HTTP streams with low priority and short-lived playback tickets. Automatic
+streams stop when the external viewer leaves the channel. TV mode stops the
+other streams. The app leaves tuner, channel and recording configuration alone.
 
-**A tile is not a hardware reservation.** TVHeadend chooses the physical tuner
-used for a preview. A manual choice selects a service for that tile; it cannot
-pin the stream to a particular physical input through the HTTP API.
+TVHeadend chooses the physical tuner for each stream. A manual selection sets
+the service for a tile. The HTTP API does not let the app reserve a particular
+hardware input for that stream.
 
-LOW/HIGH is calculated from the reported frequency, with an adjustable
-11700 MHz default boundary. It is not a measured DiSEqC or 22 kHz state.
+The app calculates LOW/HIGH from the reported frequency. The threshold defaults
+to 11700 MHz and can be changed in Settings. The value does not measure the
+DiSEqC or 22 kHz switching state.
 
 ## Server access and privacy
 
-The TVHeadend account needs access to the relevant status/catalog APIs and
-streaming permissions. Direct service previews may require **Advanced
-streaming**; status queries may require administrator access, depending on
-the server configuration. Digest, Basic and unauthenticated access are supported.
+Your TVHeadend account needs streaming permission and access to the status and
+catalog APIs. Depending on the server configuration, service streams may need
+the **Advanced streaming** permission and status queries may need administrator
+access. The app supports Digest, Basic and connections without authentication.
+The recording button also requires TVHeadend's **Video Recorder → Basic**
+permission. Recordings are stored on the server and continue if you switch
+channels or quit Tunerfenster.
 
-Passwords are stored in macOS Keychain. Saved channel and viewing preferences
-contain service IDs and tuner names, not passwords or playback tickets.
-No MCP server is required. Connection details are entered directly in the app.
+The app stores passwords in macOS Keychain. Saved channel and viewing preferences
+contain service IDs and tuner names; they contain no passwords or playback
+tickets. Enter the connection details in the app. An MCP server is not required.
 
 ## Build from source
 
-Requires Xcode or compatible macOS command-line build tools with Swift 5.9 or
-newer. The DMG packaging scripts use the macOS 27 `diskutil image` commands.
+To build the app, you need Xcode or compatible macOS command-line tools with
+Swift 5.9 or newer. The DMG scripts use the macOS 27 `diskutil image` commands.
 
 ```bash
 git clone https://github.com/NemoN/Tunerfenster.git
 cd Tunerfenster
 chmod +x ./*.sh scripts/*.sh
-SIGN_IDENTITY=- ./build-app.sh
+./build-app.sh --no-bootstrap
 open dist/Tunerfenster.app
 ```
 
-The build downloads the pinned official VideoLAN framework, verifies its
-SHA-256 checksum and embeds the matching CPU slice. Build outputs and the
-download cache are ignored by Git.
+The build downloads the official VideoLAN framework at the pinned version,
+checks its SHA-256 checksum and bundles the code for the selected CPU
+architecture. Git ignores build outputs and the download cache.
+
+Local builds use ad-hoc signing unless you pin a signing certificate. A stable
+certificate keeps Keychain access across rebuilds; see the
+[local signing setup](docs/BUILDING.md#local-build).
 
 See [building, testing and notarized releases](docs/BUILDING.md) for architecture
-selection, Developer ID signing and reproducible release commands.
+selection, Developer ID signing and the commands used to reproduce a release.
 
 ## Third-party software
 
-No license has been specified for the Tunerfenster source code yet.
-The third-party components retain their own licenses.
+The Tunerfenster source code has no license yet. Third-party components keep
+their own licenses.
 
-VLCKit / libVLC is provided by VideoLAN and its contributors under **LGPL 2.1
-or later**. Its license text, source references and replacement instructions
-are included in the app. See [third-party notices](Resources/ThirdPartyNotices.txt).
-The framework remains dynamically loaded and can be replaced with a compatible
-modified build for local use.
+VLCKit / libVLC comes from VideoLAN and its contributors under LGPL 2.1 or later.
+The app includes the license, source references and instructions for replacing
+the framework. See [third-party notices](Resources/ThirdPartyNotices.txt).
+Tunerfenster loads the framework dynamically, so you can replace it with a
+compatible modified build for local use.

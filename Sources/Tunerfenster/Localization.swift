@@ -54,8 +54,8 @@ final class LanguageStore: ObservableObject {
     @Published var language = AppLanguage.initial() {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "interfaceLanguage")
-            // This is an app-specific preference; macOS uses it for native panels
-            // on the next launch. The current SwiftUI UI changes immediately.
+            // SwiftUI changes language immediately. macOS reads this app-specific
+            // preference for native panels on the next launch.
             UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages")
             DispatchQueue.main.async { self.localizeNativeMenus() }
         }

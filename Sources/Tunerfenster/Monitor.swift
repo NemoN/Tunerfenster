@@ -10,6 +10,7 @@ final class Monitor: ObservableObject {
     @Published var paused = false
     @Published var loading = true
     @Published var lastUpdate: Date?
+    @Published private(set) var pollingSeconds: Int
     @Published var audioID: String?
     @Published private(set) var viewingMode: ViewingMode = .mosaic
     @Published private(set) var focusedID: String?
@@ -22,11 +23,16 @@ final class Monitor: ObservableObject {
     @Published private(set) var savedManual = [String: String]()
     @Published private(set) var choices = [StreamChoice]()
     @Published private(set) var receptionWarning: AppError?
+    @Published private(set) var tunerAllocation: TunerAllocation?
+    let recorder = Recorder()
+    let recordings = RecordingLibrary()
     private var multiplexes = [Multiplex]()
     private var subscriptions = [Subscription]()
     private var players = [String: Playback]()
     private var api: API?
     private var polling: Task<Void, Never>?
+    private var pollingSleep: Task<Void, Never>?
+    private let preferences: UserDefaults
     private var refreshing = false
     private var generation = UUID()
     private var playbackRevision = UUID()
@@ -44,20 +50,30 @@ final class Monitor: ObservableObject {
     private var programmeRequest: String?
     private let channelIcons = NSCache<NSURL, NSImage>()
 
-    init(selectionStore: SelectionStore = SelectionStore()) {
+    init(selectionStore: SelectionStore = SelectionStore(), preferences: UserDefaults = .standard) {
         self.selectionStore = selectionStore
+        self.preferences = preferences
+        pollingSeconds = PollingInterval.load(from: preferences)
         channelIcons.countLimit = 32
         channelIcons.totalCostLimit = 8_000_000
     }
 
     var liveCount: Int { playbackTuners.filter { preview(for: $0) != nil }.count }
+    var busyTunerCount: Int { tuners.filter { ($0.input.subs ?? 0) > 0 }.count }
+    var tunerUsage: [TunerUsage] { TunerUsage.overview(tuners: tuners, subscriptions: subscriptions) }
     var epgCount: Int { tuners.filter { $0.hasEPG && preview(for: $0) == nil }.count }
 
     var playbackTuners: [Tuner] {
-        viewingMode == .tv ? tuners.filter { $0.id == focusedID } : tuners
+        switch viewingMode {
+        case .mosaic: return tuners
+        case .tv: return tuners.filter { $0.id == focusedID }
+        case .recordings: return []
+        }
     }
 
     func setViewingMode(_ mode: ViewingMode) {
+        if mode != .mosaic { tunerAllocation = nil }
+        recordings.setActive(mode == .recordings)
         enableFocusedAudio()
         viewingMode = mode
         if mode == .tv {
@@ -70,8 +86,14 @@ final class Monitor: ObservableObject {
         requestReconciliation()
     }
 
-    func selectTVTuner(_ id: String) {
-        guard viewingMode == .tv, tuners.contains(where: { $0.id == id }) else { return }
+    var canSelectFocusedTuner: Bool {
+        guard viewingMode != .recordings, let id = focusedID, tuners.contains(where: { $0.id == id }) else { return false }
+        // A saved channel remains manual while the channel catalogue is unavailable.
+        return savedManual[id] == nil && manual[id] == nil
+    }
+
+    func selectFocusedTuner(_ id: String) {
+        guard canSelectFocusedTuner, tuners.contains(where: { $0.id == id }) else { return }
         lastTVTunerID = id
         focus(id)
         requestReconciliation()
@@ -93,6 +115,7 @@ final class Monitor: ObservableObject {
     }
 
     func followAll() {
+        tunerAllocation = nil
         let changed = Set(savedManual.keys).union(manual.keys)
         manual.removeAll()
         savedManual.removeAll()
@@ -102,6 +125,33 @@ final class Monitor: ObservableObject {
         updateProgramme()
         requestReconciliation()
     }
+
+    var canOccupyAllTuners: Bool {
+        connected && !paused && !tuners.isEmpty && choices.contains { $0.mapped && TunerAllocation.carrierKey(for: $0) != nil }
+    }
+
+    func occupyAllTuners() {
+        guard canOccupyAllTuners else { return }
+        let current = Dictionary(tuners.compactMap { tuner in currentChoice(for: tuner).map { (tuner.id, $0) } },
+                                 uniquingKeysWith: { first, _ in first })
+        let plan = TunerAllocation.plan(tuners: tuners, choices: choices, current: current)
+        guard !plan.assignments.isEmpty else { return }
+        var selections = manual, saved = savedManual
+        for (id, choice) in plan.assignments {
+            if let tuner = tuners.first(where: { $0.id == id }), preview(for: tuner)?.path != choice.preview.path {
+                players[id]?.stop()
+            }
+            selections[id] = choice
+            saved[id] = choice.id
+        }
+        manual = selections; savedManual = saved
+        saveSelections()
+        tunerAllocation = plan
+        setViewingMode(.mosaic)
+        updateProgramme()
+    }
+
+    func dismissTunerAllocation() { tunerAllocation = nil }
 
     private func requestReconciliation() {
         playbackRevision = UUID()
@@ -116,7 +166,34 @@ final class Monitor: ObservableObject {
         return tuner.previews.first { $0.id == selected[tuner.id] } ?? tuner.previews.first
     }
 
+    func currentChoice(for tuner: Tuner) -> StreamChoice? {
+        StreamChoice.current(for: preview(for: tuner), input: tuner.input, choices: choices, channels: channels)
+    }
+
+    var canSwitchFocusedChannel: Bool {
+        guard viewingMode != .recordings, let tuner = tuners.first(where: { $0.id == focusedID }) else { return false }
+        return connected && !paused && choices.filter { $0.mapped && $0.matches(input: tuner.input) }.count > 1
+    }
+
+    func switchFocusedChannel(direction: Int) {
+        guard canSwitchFocusedChannel, let tuner = tuners.first(where: { $0.id == focusedID }),
+              let choice = StreamChoice.adjacent(to: currentChoice(for: tuner)?.id, direction: direction,
+                                                input: tuner.input, choices: choices) else { return }
+        choose(choice, for: tuner)
+    }
+
+    func setPollingSeconds(_ seconds: Int) {
+        let value = PollingInterval.validated(seconds)
+        guard value != pollingSeconds else { return }
+        pollingSeconds = value
+        preferences.set(value, forKey: PollingInterval.key)
+        // Wake the interval wait so the new duration takes effect. Current
+        // requests and VLC streams keep running.
+        pollingSleep?.cancel()
+    }
+
     func choose(_ choice: StreamChoice?, for tuner: Tuner) {
+        tunerAllocation = nil
         manual[tuner.id] = choice
         savedManual[tuner.id] = choice?.id
         saveSelections()
@@ -169,6 +246,7 @@ final class Monitor: ObservableObject {
     }
 
     func focus(_ id: String?) {
+        guard viewingMode != .recordings || id == nil else { return }
         enableFocusedAudio()
         if let id { lastTVTunerID = id }
         setFocusedID(id)
@@ -283,19 +361,31 @@ final class Monitor: ObservableObject {
             }
             self.loadSelections(for: initial)
             self.api = API(connection: initial)
+            self.recorder.configure(self.api)
+            self.recordings.configure(self.api)
+            self.recordings.setActive(self.viewingMode == .recordings)
             while !Task.isCancelled {
                 if !self.paused { await self.refresh() }
-                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                let seconds = self.pollingSeconds
+                let wait = Task<Void, Never> { try? await Task.sleep(for: .seconds(seconds)) }
+                self.pollingSleep = wait
+                await withTaskCancellationHandler(operation: { await wait.value }, onCancel: { wait.cancel() })
             }
         }
     }
 
     func shutdown() {
+        tunerAllocation = nil
         saveSelections()
         saveViewingState()
         clearProgramme()
         generation = UUID()
+        recorder.configure(nil)
+        recordings.configure(nil)
         polling?.cancel()
+        pollingSleep?.cancel()
+        pollingSleep = nil
         polling = nil
         api?.close()
         api = nil
@@ -317,6 +407,7 @@ final class Monitor: ObservableObject {
     }
 
     func togglePause() {
+        tunerAllocation = nil
         paused.toggle()
         if paused { stopPlayers() }
         else { Task { await refresh() } }
@@ -326,6 +417,15 @@ final class Monitor: ObservableObject {
     func toggleAudio(_ id: String) {
         suppressAutomaticAudio = false
         setAudio(audioID == id ? nil : id)
+    }
+
+    func toggleMute() {
+        if viewingMode == .recordings { recordings.toggleMute(); return }
+        guard connected, !paused else { return }
+        if let audioID { toggleAudio(audioID); return }
+        let target = focusedID.flatMap { id in playbackTuners.first { $0.id == id } } ??
+            (focusedID == nil ? playbackTuners.first { preview(for: $0) != nil } : nil)
+        if let target, preview(for: target) != nil { toggleAudio(target.id) }
     }
 
     private func setAudio(_ id: String?) {
