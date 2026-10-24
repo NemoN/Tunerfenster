@@ -14,8 +14,8 @@ Requires macOS 14 or later. VLC is included.
 
 | Your Mac | Signed and notarized installer |
 | --- | --- |
-| Apple Silicon (M1 or newer) | [Download arm64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.10.0-arm64.dmg) |
-| Intel (64-bit) | [Download x64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.10.0-x86_64.dmg) |
+| Apple Silicon (M1 or newer) | [Download arm64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-2.0-arm64.dmg) |
+| Intel (64-bit) | [Download x64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-2.0-x86_64.dmg) |
 
 [All releases and SHA-256 checksums](https://github.com/NemoN/Tunerfenster/releases)
 

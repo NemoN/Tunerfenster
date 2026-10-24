@@ -45,6 +45,22 @@ final class UpdateSelectionTests: XCTestCase {
         }
     }
 
+    func testTwoComponentMajorReleaseOffersCorrectInstallerAndIsNotOfferedAgain() throws {
+        let release = fixtureRelease("v2.0")
+        for architecture in UpdateArchitecture.all {
+            guard case .available(let update) = try release.evaluate(currentVersion: XCTUnwrap(AppVersion("1.9.0")), architecture: architecture) else {
+                return XCTFail("Expected major version update")
+            }
+            XCTAssertEqual(update.version.description, "2.0")
+            XCTAssertEqual(update.downloadURL?.lastPathComponent, "Tunerfenster-2.0-\(architecture.rawValue).dmg")
+            for installed in ["2.0", "2.0.0"] {
+                guard case .upToDate = try release.evaluate(currentVersion: XCTUnwrap(AppVersion(installed)), architecture: architecture) else {
+                    return XCTFail("Installed major release must not be offered again")
+                }
+            }
+        }
+    }
+
     func testWrongCPUForeignURLsAndIncompleteUploadsNeverBecomeDownloads() throws {
         let name = "Tunerfenster-1.8.0-arm64.dmg"
         let valid = "https://github.com/NemoN/Tunerfenster/releases/download/v1.8.0/\(name)"

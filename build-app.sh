@@ -36,7 +36,7 @@ app = pathlib.Path(sys.argv[1])
 info = {
     'CFBundleName': 'Tunerfenster', 'CFBundleDisplayName': 'Tunerfenster',
     'CFBundleIdentifier': 'de.local.Tunerfenster', 'CFBundleExecutable': 'Tunerfenster',
-    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '1.10.0',
+    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.0',
     'CFBundleDevelopmentRegion': 'en', 'CFBundleLocalizations': ['en', 'de'],
     'CFBundleIconFile': 'AppIcon',
     'CFBundleVersion': '13', 'LSMinimumSystemVersion': '14.0',
