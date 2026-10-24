@@ -1,32 +1,62 @@
 import SwiftUI
 
 struct FocusedTunerView: View {
+    @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var monitor: Monitor
     let tuner: Tuner
     let tile: AnyView
+    @AppStorage("focusedDetailsVisible") private var detailsVisible = true
+    @State private var handleHovered = false
 
     var body: some View {
         GeometryReader { geometry in
-            if geometry.size.width >= 1000 {
-                HStack(alignment: .top, spacing: 14) {
-                    tile.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    VStack(spacing: 10) {
-                        ProgrammeView(monitor: monitor, tuner: tuner).frame(maxHeight: .infinity)
-                        FocusedReceptionView(monitor: monitor, tuner: tuner)
-                    }.frame(width: 320, height: geometry.size.height)
-                }
-            } else {
-                VStack(spacing: 10) {
-                    tile.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    ScrollView {
+            let sideBySide = geometry.size.width >= 1000
+            // Keep the video at the same structural position when the panels
+            // collapse or move below it, so the VLC surface stays attached.
+            let layout = sideBySide ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+            layout {
+                tile.frame(maxWidth: .infinity, maxHeight: .infinity)
+                detailsHandle(sideBySide: sideBySide)
+                if detailsVisible {
+                    if sideBySide {
                         VStack(spacing: 10) {
-                            ProgrammeView(monitor: monitor, tuner: tuner, scrolls: false)
+                            ProgrammeView(monitor: monitor, tuner: tuner).frame(maxHeight: .infinity)
                             FocusedReceptionView(monitor: monitor, tuner: tuner)
-                        }
-                    }.frame(height: min(300, max(130, geometry.size.height * 0.42)))
+                        }.frame(width: 320, height: geometry.size.height)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 10) {
+                                ProgrammeView(monitor: monitor, tuner: tuner, scrolls: false)
+                                FocusedReceptionView(monitor: monitor, tuner: tuner)
+                            }
+                        }.frame(height: min(300, max(130, geometry.size.height * 0.42)))
+                    }
                 }
             }
         }
+    }
+
+    private func detailsHandle(sideBySide: Bool) -> some View {
+        let title = L10n.text(detailsVisible ? "hideProgrammeAndReception" : "showProgrammeAndReception")
+        let symbol = sideBySide ? (detailsVisible ? "chevron.right" : "chevron.left") :
+            (detailsVisible ? "chevron.down" : "chevron.up")
+        return Button { detailsVisible.toggle() } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: sideBySide ? 24 : 64, height: sideBySide ? 96 : 24)
+                .background {
+                    DetailsHandleBackground(sideBySide: sideBySide, highlighted: handleHovered)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { handleHovered = $0 }
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityValue(L10n.text(detailsVisible ? "visible" : "hidden"))
+        .accessibilityIdentifier("focusedDetailsToggle")
+        .frame(maxWidth: sideBySide ? nil : .infinity, maxHeight: sideBySide ? .infinity : nil)
     }
 }
 
@@ -48,7 +78,7 @@ struct ProgrammeView: View {
             if scrolls { ScrollView { programmeContent } }
             else { programmeContent }
         }
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background { DetailPanelBackground() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.text("programmeGuide"))
         .task(id: logoKey) {
@@ -63,7 +93,7 @@ struct ProgrammeView: View {
     private var programmeContent: some View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .center, spacing: 12) {
-                    Text(L10n.text("programmeFor", monitor.preview(for: tuner)?.title ?? tuner.input.shortName))
+                    Text(L10n.text("programmeFor", monitor.preview(for: tuner)?.title ?? monitor.headerTuner(for: tuner).input.shortName))
                         .font(.headline).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -119,7 +149,7 @@ struct ProgrammeView: View {
     }
 
     private func message(_ text: String) -> some View {
-        Text(text).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text(text).font(.callout).foregroundStyle(ThemeColors.detailSecondary).fixedSize(horizontal: false, vertical: true)
     }
 
     private func programme(_ event: Programme, label: String, prominent: Bool) -> some View {
@@ -128,12 +158,12 @@ struct ProgrammeView: View {
                 Text(L10n.text(label)).font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
                 Text("\(time(event.startDate)) – \(time(event.stopDate))")
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    .font(.caption).foregroundStyle(ThemeColors.detailSecondary).monospacedDigit()
             }
             Text(event.title ?? L10n.text("programmeUntitled"))
                 .font(prominent ? .title2.weight(.semibold) : .headline).textSelection(.enabled)
             if let subtitle = event.subtitle, !subtitle.isEmpty, subtitle != event.title {
-                Text(subtitle).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(subtitle).font(.callout).foregroundStyle(ThemeColors.detailSecondary).textSelection(.enabled)
             }
         }
     }
@@ -152,7 +182,9 @@ private struct ProgrammeRecordingControls: View {
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var buttonFocused: Bool
     private var key: String { Recorder.key(event) }
+    private var current: Programme { recorder.recording(for: event) }
     private var recording: Bool { recorder.isRecording(event) }
+    private var restart: Bool { recorder.canRestart(event) }
     private var busy: Bool { recorder.pending.contains(key) }
 
     var body: some View {
@@ -168,25 +200,23 @@ private struct ProgrammeRecordingControls: View {
                     recordingButton(tint: ThemeColors.recording)
                 }
                 Text(L10n.text("recordingActive")).font(.caption).foregroundStyle(.secondary)
-            } else if let uuid = event.dvrUuid, recorder.stopped.contains(uuid) {
+            } else if restart {
+                recordingButton(tint: ThemeColors.recording)
+                Text(L10n.text("recordingKept")).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                availability
+            } else if current.recordingIsFinished || recorder.stopped.contains(current.dvrUuid ?? "") {
                 Label(L10n.text("recordingStopped"), systemImage: "checkmark.circle").font(.callout)
                 Text(L10n.text("recordingKept")).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if event.hasRecording || recorder.submitted.contains(key) {
-                Label(L10n.text(event.hasRecording ? "recordingExists" : "recordingRequested"), systemImage: "checkmark.circle")
+            } else if current.hasRecording || recorder.submitted.contains(key) {
+                Label(L10n.text(recorder.submitted.contains(key) ? "recordingRequested" : "recordingExists"), systemImage: "checkmark.circle")
                     .font(.callout).foregroundStyle(.secondary)
             } else {
                 recordingButton(tint: ThemeColors.recording)
-                if recorder.checking {
-                    ProgressView(L10n.text("recordingChecking")).controlSize(.small)
-                } else if let error = recorder.availabilityError {
-                    Text(error.localizedDescription).font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button(L10n.text("recordingCheckAgain")) { Task { await recorder.refreshAvailability(force: true) } }
-                        .font(.caption)
-                }
+                availability
             }
-            if event.recordingHasError {
+            if current.recordingHasError {
                 Label(L10n.text("recordingServerError"), systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(ThemeColors.warning).fixedSize(horizontal: false, vertical: true)
             }
@@ -195,7 +225,26 @@ private struct ProgrammeRecordingControls: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .onAppear { Task { await recorder.refreshAvailability() } }
+        .task(id: "\(key)/\(event.dvrUuid ?? "")/\(connected)") {
+            guard connected else { return }
+            await recorder.refreshAvailability()
+            while !Task.isCancelled {
+                await recorder.refreshRecording(event)
+                do { try await Task.sleep(for: .seconds(5)) }
+                catch { return }
+            }
+        }
+    }
+
+    @ViewBuilder private var availability: some View {
+        if recorder.checking {
+            ProgressView(L10n.text("recordingChecking")).controlSize(.small)
+        } else if let error = recorder.availabilityError {
+            Text(error.localizedDescription).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(L10n.text("recordingCheckAgain")) { Task { await recorder.refreshAvailability(force: true) } }
+                .font(.caption)
+        }
     }
 
     private func recordingButton(tint: Color) -> some View {
@@ -207,14 +256,14 @@ private struct ProgrammeRecordingControls: View {
                 refreshProgramme()
             }
         } label: {
-            Label(L10n.text(recording ? (busy ? "recordingStopping" : "stopRecording") : (busy ? "recordingRequesting" : "recordUntilEnd")),
+            Label(L10n.text(recording ? (busy ? "recordingStopping" : "stopRecording") : (busy ? "recordingRequesting" : (restart ? "recordAgain" : "recordUntilEnd"))),
                   systemImage: recording ? "stop.fill" : "record.circle")
         }
         .buttonStyle(RecordingButtonStyle(color: tint))
         .focused($buttonFocused)
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(buttonFocused ? Color.accentColor : .clear, lineWidth: 2))
         .disabled(!connected || (recording ? !recorder.canStop(event) : !recorder.canRecord(event)))
-        .help(L10n.text(recording ? "stopRecordingHelp" : "recordUntilEndHelp"))
+        .help(L10n.text(recording ? "stopRecordingHelp" : (restart ? "recordAgainHelp" : "recordUntilEndHelp")))
         .accessibilityValue(recording ? L10n.text("recordingActive") : "")
     }
 }

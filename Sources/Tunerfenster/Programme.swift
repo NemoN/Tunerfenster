@@ -17,6 +17,7 @@ struct Programme: Decodable, Identifiable, Equatable, Sendable {
     var hasRecording: Bool { !(dvrUuid ?? "").isEmpty }
     var recordingIsActive: Bool { hasRecording && dvrState == "recording" }
     var recordingIsRunning: Bool { hasRecording && ["recording", "recordingError"].contains(dvrState ?? "") }
+    var recordingIsFinished: Bool { hasRecording && ["completed", "completedError", "completedWarning", "completedRerecord"].contains(dvrState ?? "") }
     var recordingHasError: Bool { hasRecording && ["recordingError", "completedError", "completedWarning"].contains(dvrState ?? "") }
     func isCurrent(at date: Date) -> Bool { start <= date.timeIntervalSince1970 && stop > date.timeIntervalSince1970 }
     var details: String? {

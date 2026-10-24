@@ -14,8 +14,8 @@ Benötigt macOS 14 oder neuer. VLC ist enthalten.
 
 | Dein Mac | Signierte und notarisierte Installationsdatei |
 | --- | --- |
-| Apple Silicon (M1 oder neuer) | [arm64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.9.0-arm64.dmg) |
-| Intel (64 Bit) | [x64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.9.0-x86_64.dmg) |
+| Apple Silicon (M1 oder neuer) | [arm64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.10.0-arm64.dmg) |
+| Intel (64 Bit) | [x64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.10.0-x86_64.dmg) |
 
 [Alle Releases und SHA-256-Prüfsummen](https://github.com/NemoN/Tunerfenster/releases)
 
@@ -106,10 +106,67 @@ Die folgenden Beispiele verwenden erfundene Sender und erzeugte Testsignale.
 - Die Wiedergabe nutzt VLCKit 3.7.4 / libVLC 3.0.24. Es gibt getrennte Builds
   für Apple Silicon und Intel.
 - **Aufnahmen** zeigt aufgezeichnete Sendungen und laufende Aufnahmen. Suche
-  nach Titel oder Sender und wähle eine Aufnahme zum Abspielen. Der Player bietet
-  Pause, Zeitleiste und Tonsteuerung. Eine ungefähre Dauer aus TVHeadend ist mit
+  nach Titel oder Sender. Ein Klick zeigt die Sendungsinfos, ein Doppelklick startet
+  die Wiedergabe an der gespeicherten Position. Die App ergänzt
+  Folgennamen aus dem Untertitel oder einem ausdrücklich benannten Episodenfeld in
+  der Beschreibung, etwa „Tatort: Charlie“. Das funktioniert unabhängig von Serie
+  oder Sendung. Vollständige Titel bleiben erhalten; wiederholte Namen und reine
+  Genreangaben werden nicht angehängt. Bei uneindeutigen Metadaten bleibt der
+  Originaltitel stehen. Die Anzeige ändert weder Einträge noch Dateien auf dem Server. Der Player bietet
+  Pause, Zeitleiste und Tonsteuerung. Ziehe die horizontale Trennlinie über den
+  Sendungsinfos nach oben, um mehr Text zu sehen; das Videobild wird entsprechend
+  kleiner. Die App merkt sich die Position. Die Auswahl einer anderen Aufnahme
+  stoppt die laufende Wiedergabe und zeigt deren Infos, ohne sie zu starten.
+  Eine ungefähre Dauer aus TVHeadend ist mit
   **≈** markiert, wenn VLC die Dateidauer nicht ermitteln kann. Nicht verfügbare
-  Dateien sind gekennzeichnet. Beim Wechsel zu Aufnahmen stoppen die Live-Streams
+  Dateien sind gekennzeichnet. Abgeschlossene Aufnahmen kannst du über den Papierkorb
+  oder das Kontextmenü löschen. Nach einer Bestätigung werden Datei und Eintrag
+  dauerhaft von TVHeadend gelöscht. Laufende Aufnahmen musst du zuerst beenden.
+  Serverordner erscheinen als aufklappbare Gruppen mit Aufnahmezahl, auch mit
+  Unterordnern. Aufnahmen im Hauptverzeichnis oder allein in einem Ordner stehen
+  direkt in der Liste, ohne aufzuklappenden Ordner. Die Suche findet zusätzlich
+  Ordnernamen; der Pfad erscheint beim Verweilen über einer Aufnahme.
+  Innerhalb eines Ordners entfällt dessen Name am Anfang des Aufnahmetitels:
+  „Tatort: Charlie“ erscheint unter „Tatort“ als „Charlie“. In der Suche und
+  im Player bleibt der vollständige Titel erhalten.
+  Jede Aufnahme steht in einer Zeile: Gesehen-Status, Name, Sender,
+  Datum und Dauer, rechts Löschen. Die Wiedergabe startest du mit Abspielen im Player oder Kontextmenü.
+  Kleine Abstände trennen die
+  ausgerichteten Spalten; Datumsangaben haben führende Nullen. Ein roter ausgefüllter
+  Punkt hinter dem Namen steht für eine laufende Aufnahme. Fehler oder fehlende
+  Dateien haben dort ein Warnsymbol; Details stehen im Tooltip.
+  Das Symbol vor dem Namen zeigt den Gesehen-Status: ein leerer Kreis für ungesehen,
+  ein halb gefüllter Kreis für angefangen und ein Auge für gesehen. Der Tooltip
+  nennt die Fortsetzungsposition. Abspielen setzt die Aufnahme an der
+  gespeicherten Stelle fort. Die App synchronisiert den Fortschritt alle zehn
+  Sekunden, beim Pausieren, nach dem Spulen, beim Aufnahme- oder Moduswechsel
+  und beim Beenden mit TVHeadend. Fehlgeschlagene Übertragungen bleiben lokal
+  für den jeweiligen Server und Benutzer gespeichert und werden erneut versucht.
+  Ab 90 % oder beim Wiedergabeende wird eine abgeschlossene Aufnahme als gesehen
+  markiert und die Fortsetzungsposition gelöscht. Vorhandene Gesehen-Markierungen
+  bleiben erhalten. Im Kontextmenü kannst du **Als gesehen markieren** oder
+  **Als ungesehen markieren** wählen. Beide Aktionen löschen die Fortsetzungsposition
+  und synchronisieren den gewählten Status mit TVHeadend. Bei pausierter Wiedergabe
+  bleibt die Auswahl bestehen, bis du weiterschaust.
+  **Von Anfang an abspielen** im Player oder Kontextmenü startet
+  die Aufnahme neu. Status und Position gehören zum Servereintrag und können auch
+  von anderen Clients gelesen oder geändert werden.
+  Über die Trennlinie zum
+  Player lässt sich die Liste verbreitern. Breite und aufgeklappte Ordner bleiben
+  gespeichert. Hinter dem Datum steht die Dauer als Stunden:Minuten:Sekunden.
+  Davor steht ein Uhrsymbol. Die Angabe ist die geplante Dauer aus TVHeadend;
+  die Dateilänge kann abweichen.
+  Ein Strich steht für eine fehlende Dauer. Beim Verkleinern verschwinden zuerst
+  Sender und Datum, danach die Dauer. Alle Zeilen schalten bei denselben Listenbreiten
+  um, auch innerhalb von Ordnern und in Suchergebnissen. Die Symbole für Name, Datum
+  und Dauer neben der Gesamtzahl
+  sortieren die Liste. Ein weiterer Klick auf das aktive Symbol kehrt die Reihenfolge
+  um. Ordner und einzelne Aufnahmen werden gemeinsam einsortiert, auch innerhalb
+  von Ordnern. Die Sortierung bleibt gespeichert; für Ordner zählt das Datum ihrer neuesten
+  Aufnahme. Bei der Dauersortierung zählt die längste enthaltene Aufnahme, auch in
+  Unterordnern. Fehlende Dauerangaben stehen in beiden Richtungen am Ende.
+  Aktualisieren (⌘R) übernimmt auf dem Server verschobene Aufnahmen.
+  Beim Wechsel zu Aufnahmen stoppen die Live-Streams
   der App; deine Senderzuordnungen bleiben gespeichert.
 
 Die Titelzeile zeigt die installierte Version. Wie oft die App den Tunerstatus
@@ -119,12 +176,16 @@ Das Intervall kann 1 bis 60 Sekunden betragen und wird automatisch gespeichert.
 In der vergrößerten Ansicht wechseln **↑ / ↓** und die Pfeilbuttons die Sender
 in Listenreihenfolge. Nach dem letzten Sender folgt wieder der erste, beim
 Zurückschalten nach dem ersten der letzte.
-Vollbild zeigt nur das Video. **Esc** beendet das Vollbild, ein weiteres **Esc**
+Im Vollbild erscheint die Steuerung bei Mausbewegung und verschwindet nach drei
+Sekunden Ruhe. Bei Aufnahmen zeigt sie auch die Zeitleiste; während du den Regler
+ziehst, bleibt sie sichtbar. **Esc** beendet das Vollbild, ein weiteres **Esc**
 führt zurück ins Mosaik.
 Mit **⌘1**, **⌘2** und **⌘3** wechselst du zwischen Mosaik, TV und Aufnahmen.
-Die App merkt sich den zuletzt verwendeten Modus. Eine gewählte Aufnahme startet
-mit Ton; **M** schaltet ihn stumm oder wieder ein. **⌘P** pausiert die Wiedergabe
-oder setzt sie fort.
+Die App merkt sich den zuletzt verwendeten Modus. Ein Klick auf eine Aufnahme
+zeigt ihre Infos. Ein Doppelklick, **Aufnahme abspielen** oder **⌘P** startet die Wiedergabe mit
+Ton. **M** schaltet ihn stumm oder wieder ein. Während der Wiedergabe pausiert
+**⌘P** oder setzt sie fort. Ein Doppelklick ins Video schaltet Vollbild ein oder aus.
+**Esc** oder **⌃⌘F** beendet Vollbild ebenfalls.
 
 ## Softwareupdates
 

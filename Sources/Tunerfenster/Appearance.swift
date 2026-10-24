@@ -56,7 +56,91 @@ struct AppearanceButton: View {
     }
 }
 
+struct DetailPanelBackground: View {
+    var cornerRadius: CGFloat = 8
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(Color(nsColor: .controlBackgroundColor))
+            .overlay {
+                if contrast != .increased && !reduceTransparency {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(LinearGradient(stops: [
+                            .init(color: .white.opacity(colorScheme == .dark ? 0.04 : 0.02), location: 0),
+                            .init(color: .clear, location: 0.55),
+                            .init(color: .black.opacity(0.025), location: 1)
+                        ], startPoint: .top, endPoint: .bottom))
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+struct DetailsHandleBackground: View {
+    let sideBySide: Bool
+    let highlighted: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        Capsule().fill(Color(nsColor: .controlBackgroundColor))
+            .overlay {
+                if contrast == .increased || reduceTransparency {
+                    Capsule().fill(Color.primary.opacity(highlighted ? 0.12 : 0.06))
+                } else {
+                    Capsule().fill(LinearGradient(stops: [
+                        .init(color: .white.opacity(colorScheme == .dark ? (highlighted ? 0.14 : 0.07) : 0.03), location: 0),
+                        .init(color: .clear, location: 0.5),
+                        .init(color: .black.opacity(highlighted ? 0.08 : 0.04), location: 1)
+                    ], startPoint: .topLeading, endPoint: .bottomTrailing))
+                }
+            }
+            .padding(sideBySide ? .horizontal : .vertical, 4)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+struct VideoControlsBackground: View {
+    let edge: VerticalEdge
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        Group {
+            if contrast == .increased || reduceTransparency {
+                Color.black
+            } else {
+                // The fade extends into the picture; the area directly behind
+                // labels stays dark enough even over a white video frame.
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black.opacity(0.78), location: 0.42),
+                    .init(color: .black.opacity(0.90), location: 1)
+                ], startPoint: edge == .bottom ? .top : .bottom,
+                   endPoint: edge == .bottom ? .bottom : .top)
+                .padding(edge == .bottom ? .top : .bottom, -24)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 enum ThemeColors {
+    static let detailSecondary = Color(nsColor: NSColor(name: nil) { appearance in
+        var color = NSColor.secondaryLabelColor
+        appearance.performAsCurrentDrawingAppearance {
+            color = NSColor.secondaryLabelColor.usingColorSpace(.sRGB) ?? NSColor.labelColor
+        }
+        return color.withAlphaComponent(max(color.alphaComponent, 0.6))
+    })
+
     static let recording = Color(red: 0.70, green: 0.06, blue: 0.09)
     static let recordingPulse = Color(red: 0.55, green: 0.03, blue: 0.05)
     static let active = Color(nsColor: NSColor(name: nil) { appearance in

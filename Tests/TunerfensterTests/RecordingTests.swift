@@ -6,32 +6,45 @@ private actor RecordingStub: RecordingAPI {
     let event: Programme?
     var requests = [(Int, String)]()
     var entry: RecordingEntry?
+    var created = [String: RecordingEntry]()
     var stops = [String]()
     let keepRunning: Bool
     let refuseStop: Bool
+    let refuseActiveCheck: Bool
     init(profiles: [RecordingProfile], event: Programme?, entry: RecordingEntry? = nil,
-         keepRunning: Bool = false, refuseStop: Bool = false) {
+         keepRunning: Bool = false, refuseStop: Bool = false, refuseActiveCheck: Bool = false) {
         self.profiles = profiles; self.event = event; self.entry = entry
         self.keepRunning = keepRunning; self.refuseStop = refuseStop
+        self.refuseActiveCheck = refuseActiveCheck
     }
     func recordingProfiles() async throws -> [RecordingProfile] { profiles }
+    func seedRecording(_ entry: RecordingEntry) { created[entry.uuid] = entry }
     func recordingEvent(_ event: Programme, language: AppLanguage) async throws -> Programme? {
         try await Task.sleep(for: .milliseconds(20))
         return self.event
     }
+    func activeRecordings(for event: Programme) async throws -> [RecordingEntry] {
+        if refuseActiveCheck { throw AppError.message("missingPermissions") }
+        return (Array(created.values) + [entry].compactMap { $0 }).filter { !$0.isFinished && $0.refersTo(event) }
+    }
     func recordProgramme(eventID: Int, profileID: String) async throws -> String {
         requests.append((eventID, profileID))
-        return "recording-id"
+        let uuid = requests.count == 1 ? "recording-id" : "recording-id-\(requests.count)"
+        created[uuid] = RecordingEntry(uuid: uuid, channel: event?.channelUuid, broadcast: eventID, sched_status: "recording")
+        return uuid
     }
     func recordingStatus(uuid: String) async throws -> RecordingEntry? {
         try await Task.sleep(for: .milliseconds(20))
-        return entry
+        return created[uuid] ?? entry
     }
     func stopRecording(uuid: String) async throws {
         stops.append(uuid)
         if refuseStop { throw AppError.message("missingPermissions") }
-        if let entry, !keepRunning {
+        if let entry, entry.uuid == uuid, !keepRunning {
             self.entry = RecordingEntry(uuid: entry.uuid, channel: entry.channel, broadcast: entry.broadcast, sched_status: "completed")
+        }
+        if let entry = created[uuid], !keepRunning {
+            created[uuid] = RecordingEntry(uuid: entry.uuid, channel: entry.channel, broadcast: entry.broadcast, sched_status: "completed")
         }
     }
 }
@@ -59,8 +72,141 @@ final class RecordingTests: XCTestCase {
         XCTAssertEqual(stops, ["existing"])
         XCTAssertTrue(recorder.stopped.contains("existing"))
         XCTAssertFalse(recorder.isRecording(active))
-        XCTAssertFalse(recorder.canRecord(active), "A stopped recording must not become a duplicate timer")
+        XCTAssertFalse(recorder.canRecord(active), "Starting again still requires an available recording profile")
         XCTAssertNil(recorder.errors[Recorder.key(active)])
+    }
+
+    @MainActor func testStoppedProgrammeCanRestartRepeatedlyAndStopTheNewUUIDWithStaleEPG() async {
+        let recorder = Recorder(now: { self.now })
+        let stub = RecordingStub(profiles: [.init(uuid: "default")], event: active,
+                                 entry: .init(uuid: "existing", channel: "channel", broadcast: 42, sched_status: "recording"))
+        recorder.configure(stub)
+        await recorder.refreshAvailability()
+        await recorder.stop(active)
+        XCTAssertTrue(recorder.canRestart(active))
+        XCTAssertTrue(recorder.canRecord(active))
+        for uuid in ["recording-id", "recording-id-2"] {
+            async let first: Void = recorder.record(active)
+            await recorder.record(active)
+            await first
+            XCTAssertEqual(recorder.recording(for: active).dvrUuid, uuid)
+            XCTAssertTrue(recorder.isRecording(active))
+            XCTAssertFalse(recorder.canRecord(active))
+            XCTAssertFalse(recorder.canRestart(active))
+            await recorder.stop(active)
+            XCTAssertFalse(recorder.isRecording(active))
+            XCTAssertTrue(recorder.canRecord(active))
+        }
+        let stops = await stub.stops
+        let requests = await stub.requests
+        let previous = await stub.entry
+        let created = await stub.created
+        XCTAssertEqual(stops, ["existing", "recording-id", "recording-id-2"])
+        XCTAssertEqual(requests.count, 2, "Double clicks must not create extra files")
+        XCTAssertTrue(previous?.isFinished == true, "The original entry must remain intact")
+        XCTAssertEqual(created.count, 2)
+        XCTAssertTrue(created.values.allSatisfy(\.isFinished))
+        XCTAssertNil(recorder.errors[Recorder.key(active)])
+    }
+
+    @MainActor func testFinishedRecordingCanRestartAfterAppRestartButOnlyDuringItsProgramme() async {
+        var completed = active
+        completed.dvrState = "completed"
+        let recorder = Recorder(now: { self.now })
+        let stub = RecordingStub(profiles: [.init(uuid: "default")], event: completed,
+                                 entry: .init(uuid: "existing", channel: "channel", broadcast: 42, sched_status: "completed"))
+        recorder.configure(stub)
+        await recorder.refreshAvailability()
+        XCTAssertTrue(recorder.stopped.isEmpty, "No in-memory stop history is required")
+        XCTAssertTrue(recorder.canRecord(completed))
+        await recorder.record(completed)
+        XCTAssertTrue(recorder.isRecording(completed))
+        XCTAssertEqual(recorder.recording(for: completed).dvrUuid, "recording-id")
+
+        let ended = Recorder(now: { Date(timeIntervalSince1970: 200) })
+        ended.configure(stub)
+        await ended.refreshAvailability()
+        XCTAssertFalse(ended.canRestart(completed))
+        XCTAssertFalse(ended.canRecord(completed))
+    }
+
+    @MainActor func testAnotherClientsActiveRecordingBlocksRestartDespiteStaleCompletedEPG() async {
+        var completed = active
+        completed.dvrState = "completed"
+        let recorder = Recorder(now: { self.now })
+        let stub = RecordingStub(profiles: [.init(uuid: "default")], event: completed,
+                                 entry: .init(uuid: "other-client", channel: "channel", broadcast: 42, sched_status: "recording"))
+        recorder.configure(stub)
+        await recorder.refreshAvailability()
+        await recorder.record(completed)
+        let requests = await stub.requests
+        XCTAssertTrue(requests.isEmpty)
+        XCTAssertTrue(recorder.isRecording(completed))
+        XCTAssertEqual(recorder.recording(for: completed).dvrUuid, "other-client")
+        XCTAssertFalse(recorder.canRecord(completed))
+        await recorder.stop(completed)
+        let stops = await stub.stops
+        XCTAssertEqual(stops, ["other-client"])
+    }
+
+    @MainActor func testRestartRequiresSuccessfulDuplicateCheckAndConfirmedFinishedState() async {
+        var completed = active
+        completed.dvrState = "completed"
+        let recorder = Recorder(now: { self.now })
+        let stub = RecordingStub(profiles: [.init(uuid: "default")], event: completed, refuseActiveCheck: true)
+        recorder.configure(stub)
+        await recorder.refreshAvailability()
+        await recorder.record(completed)
+        let requests = await stub.requests
+        XCTAssertTrue(requests.isEmpty)
+        XCTAssertNotNil(recorder.errors[Recorder.key(completed)])
+        XCTAssertTrue(recorder.canRecord(completed), "A failed check can be retried")
+
+        let unconfirmed = RecordingStub(profiles: [.init(uuid: "default")], event: active,
+                                       entry: .init(uuid: "existing", channel: "channel", broadcast: 42, sched_status: "scheduled"))
+        recorder.configure(unconfirmed)
+        await recorder.refreshAvailability()
+        await recorder.stop(active)
+        XCTAssertTrue(recorder.stopped.isEmpty)
+        XCTAssertFalse(recorder.canRecord(active))
+        XCTAssertNotNil(recorder.errors[Recorder.key(active)])
+    }
+
+    @MainActor func testStatusRefreshRecoversCompletedStateAndDiscardsOldConnectionResults() async {
+        let recorder = Recorder(now: { self.now })
+        let stub = RecordingStub(profiles: [.init(uuid: "default")], event: active,
+                                 entry: .init(uuid: "existing", channel: "channel", broadcast: 42, sched_status: "completed"))
+        recorder.configure(stub)
+        await recorder.refreshAvailability()
+        XCTAssertFalse(recorder.canRecord(active))
+        await recorder.refreshRecording(active)
+        XCTAssertTrue(recorder.canRecord(active))
+        XCTAssertFalse(recorder.isRecording(active))
+        await recorder.record(active)
+        XCTAssertEqual(recorder.recording(for: active).dvrUuid, "recording-id")
+        XCTAssertTrue(recorder.isRecording(active), "Direct DVR state must win over stale EPG state")
+        let task = Task { await recorder.refreshRecording(active) }
+        await Task.yield()
+        recorder.configure(nil)
+        await task.value
+        XCTAssertTrue(recorder.entries.isEmpty)
+    }
+
+    @MainActor func testStatusRefreshFindsRestartedRecordingAfterRelaunchWithStaleEPG() async {
+        let recorder = Recorder(now: { self.now })
+        let stub = RecordingStub(profiles: [.init(uuid: "default")], event: active,
+                                 entry: .init(uuid: "existing", channel: "channel", broadcast: 42, sched_status: "completed"))
+        await stub.seedRecording(.init(uuid: "restarted", channel: "channel", broadcast: 42, sched_status: "recording"))
+        recorder.configure(stub)
+        await recorder.refreshAvailability()
+        await recorder.refreshRecording(active)
+        XCTAssertTrue(recorder.isRecording(active))
+        XCTAssertFalse(recorder.canRecord(active))
+        XCTAssertEqual(recorder.recording(for: active).dvrUuid, "restarted")
+        await recorder.stop(active)
+        let stops = await stub.stops
+        XCTAssertEqual(stops, ["restarted"])
+        XCTAssertTrue(recorder.canRecord(active))
     }
 
     @MainActor func testStaleOrUnrelatedUUIDCannotStopAnotherRecording() async {
@@ -130,6 +276,21 @@ final class RecordingTests: XCTestCase {
         XCTAssertEqual(requests.first?.1, "default")
         XCTAssertTrue(recorder.submitted.contains(Recorder.key(event)))
         XCTAssertFalse(recorder.canRecord(event))
+    }
+
+    @MainActor func testDeletedRecordingIsNotRetainedAsCurrentProgrammeHistory() async {
+        let recorder = Recorder(now: { self.now })
+        let stub = RecordingStub(profiles: [.init(uuid: "default")], event: event)
+        recorder.configure(stub)
+        await recorder.refreshAvailability()
+        await recorder.record(event)
+        await recorder.stop(event)
+        XCTAssertTrue(recorder.canRestart(event))
+        recorder.forgetRecording(uuid: "recording-id")
+        XCTAssertTrue(recorder.canRecord(event))
+        XCTAssertFalse(recorder.canRestart(event))
+        XCTAssertFalse(recorder.recording(for: event).hasRecording)
+        XCTAssertTrue(recorder.submitted.isEmpty)
     }
 
     @MainActor func testUnconfiguredProfilesAndEndedEventsDoNotRecord() async {
@@ -218,6 +379,19 @@ final class RecordingAPITests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RecordingURLProtocol.self]
         return API(connection: Connection(address: "http://localhost:9981/tvh", username: "test", password: "secret"), configuration: configuration)
+    }
+
+    func testUpcomingProbeMatchesProgrammeAndChannelAndIgnoresFinishedFiles() async throws {
+        let api = client()
+        defer { api.close(); RecordingURLProtocol.respond = nil }
+        RecordingURLProtocol.respond = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/tvh/api/dvr/entry/grid_upcoming")
+            return (200, Data(#"{"total":7,"entries":[{"uuid":"new-active","channel":"channel","broadcast":42,"sched_status":"recording"},{"uuid":"timer","channel":"channel","broadcast":42,"sched_status":"scheduled"},{"uuid":"old","channel":"channel","broadcast":42,"sched_status":"completed"},{"uuid":"wrong-channel","channel":"other","broadcast":42,"sched_status":"recording"},{"uuid":"other-event","channel":"channel","broadcast":43,"sched_status":"recording"},{"uuid":"known","channel":"channel","sched_status":"recording"},{"uuid":"unknown-event","channel":"channel","sched_status":"recording"}]}"#.utf8))
+        }
+        let event = Programme(eventId: 42, channelUuid: "channel", start: 100, stop: 200, dvrUuid: "known")
+        let active = try await api.activeRecordings(for: event)
+        XCTAssertEqual(Set(active.map(\.uuid)), ["new-active", "timer", "known"])
     }
 
     func testPOSTUsesEventIdentityAndFormBodyAndRequiresConfirmationUUID() async throws {

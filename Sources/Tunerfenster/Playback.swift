@@ -26,6 +26,7 @@ final class VLC: @unchecked Sendable {
     let videoSize: @convention(c) (VLCRef?, UInt32, UnsafeMutablePointer<UInt32>?, UnsafeMutablePointer<UInt32>?) -> Int32
     let getTime: @convention(c) (VLCRef?) -> Int64
     let getLength: @convention(c) (VLCRef?) -> Int64
+    let getPosition: @convention(c) (VLCRef?) -> Float
     let setTime: @convention(c) (VLCRef?, Int64) -> Void
     let setPosition: @convention(c) (VLCRef?, Float) -> Void
     let setPause: @convention(c) (VLCRef?, Int32) -> Void
@@ -67,6 +68,7 @@ final class VLC: @unchecked Sendable {
         videoSize = try bind("libvlc_video_get_size", (@convention(c) (VLCRef?, UInt32, UnsafeMutablePointer<UInt32>?, UnsafeMutablePointer<UInt32>?) -> Int32).self)
         getTime = try bind("libvlc_media_player_get_time", (@convention(c) (VLCRef?) -> Int64).self)
         getLength = try bind("libvlc_media_player_get_length", (@convention(c) (VLCRef?) -> Int64).self)
+        getPosition = try bind("libvlc_media_player_get_position", (@convention(c) (VLCRef?) -> Float).self)
         setTime = try bind("libvlc_media_player_set_time", (@convention(c) (VLCRef?, Int64) -> Void).self)
         setPosition = try bind("libvlc_media_player_set_position", (@convention(c) (VLCRef?, Float) -> Void).self)
         setPause = try bind("libvlc_media_player_set_pause", (@convention(c) (VLCRef?, Int32) -> Void).self)
@@ -127,6 +129,7 @@ final class Playback: ObservableObject {
     @Published private var statusMessage: AppError = .message("playbackConnecting")
     var status: String { statusMessage.localizedDescription }
     @Published var isPlaying = false
+    @Published private(set) var hasVideo = false
     @Published private(set) var streamRevision = UUID()
     @Published private(set) var isPaused = false
     @Published private(set) var ended = false
@@ -135,6 +138,10 @@ final class Playback: ObservableObject {
     @Published private(set) var durationSeconds: Double = 0
     @Published private(set) var canSeek = false
     @Published private(set) var timelineEstimated = false
+    @Published private(set) var restoringPosition = false
+    @Published private(set) var resumeFailed = false
+    private var resumeTarget: Double?
+    private var resumeRequested: Date?
     private var handle: PlayerHandle?
     private var current: String?
     private var lastStart = Date.distantPast
@@ -150,7 +157,7 @@ final class Playback: ObservableObject {
         } catch { statusMessage = .wrapping(error) }
     }
 
-    func start(url: URL, key: String) {
+    func start(url: URL, key: String, resumeAt: Double = 0) {
         guard let handle else { return }
         let changed = current != key
         let state = handle.api.state(handle.pointer)
@@ -161,8 +168,10 @@ final class Playback: ObservableObject {
         streamRevision = UUID()
         lastStart = Date()
         statusMessage = .message(changed ? "playbackConnecting" : "playbackReconnecting")
-        isPlaying = false
+        isPlaying = false; hasVideo = false
         isPaused = false; ended = false; failed = false; positionSeconds = 0; durationSeconds = 0; canSeek = false; timelineEstimated = false
+        resumeTarget = resumeAt.isFinite && resumeAt > 0 ? resumeAt : nil
+        resumeRequested = nil; restoringPosition = resumeTarget != nil; resumeFailed = false
         let muted = muted
         handle.queue.async {
             let api = handle.api, player = handle.pointer
@@ -189,8 +198,9 @@ final class Playback: ObservableObject {
         guard current != nil else { return }
         current = nil
         streamRevision = UUID()
-        isPlaying = false
+        isPlaying = false; hasVideo = false
         isPaused = false; ended = false; failed = false; positionSeconds = 0; durationSeconds = 0; canSeek = false; timelineEstimated = false
+        resumeTarget = nil; resumeRequested = nil; restoringPosition = false; resumeFailed = false
         statusMessage = .message("playbackStopped")
         guard let handle else { return }
         handle.queue.async { handle.api.stop(handle.pointer) }
@@ -209,14 +219,18 @@ final class Playback: ObservableObject {
     }
 
     func togglePaused() {
+        setPaused(!isPaused)
+    }
+
+    func setPaused(_ value: Bool) {
         guard current != nil, let handle else { return }
-        isPaused.toggle()
-        let value = isPaused
+        isPaused = value
         handle.queue.async { handle.api.setPause(handle.pointer, value ? 1 : 0) }
     }
 
-    func seek(to seconds: Double) {
+    func seek(to seconds: Double, manually: Bool = true) {
         guard current != nil, canSeek, seconds.isFinite, let handle else { return }
+        if manually { resumeTarget = nil; resumeRequested = nil; restoringPosition = false; resumeFailed = false }
         let value = max(0, min(durationSeconds, seconds))
         positionSeconds = value
         let fraction = Float(value / durationSeconds), estimated = timelineEstimated
@@ -229,18 +243,39 @@ final class Playback: ObservableObject {
     func updateTimeline(fallbackDuration: Double = 0) async {
         guard current != nil, let handle else { return }
         let revision = streamRevision
-        let values: (Int64, Int64, Bool) = await withCheckedContinuation { continuation in
+        let values: (Int64, Int64, Bool, Float) = await withCheckedContinuation { continuation in
             handle.queue.async {
                 continuation.resume(returning: (handle.api.getTime(handle.pointer), handle.api.getLength(handle.pointer),
-                                                handle.api.isSeekable(handle.pointer) != 0))
+                                                handle.api.isSeekable(handle.pointer) != 0, handle.api.getPosition(handle.pointer)))
             }
         }
         guard !Task.isCancelled, revision == streamRevision, current != nil else { return }
         timelineEstimated = values.1 <= 0 && fallbackDuration > 0
         durationSeconds = values.1 > 0 ? Double(values.1) / 1000 : max(0, fallbackDuration)
         positionSeconds = max(0, Double(values.0) / 1000)
+        // MPEG-TS may have no VLC duration and its clock can restart after a
+        // byte-position seek. Use the file position with TVHeadend's estimate.
+        if timelineEstimated, values.3.isFinite, values.3 > 0, values.3 <= 1 {
+            positionSeconds = Double(values.3) * durationSeconds
+        }
         canSeek = values.2 && durationSeconds > 0
         updateStatus()
+        if let target = resumeTarget {
+            if resumeRequested == nil, canSeek, isPlaying || isPaused {
+                if target >= durationSeconds {
+                    resumeTarget = nil; restoringPosition = false
+                } else {
+                    seek(to: target, manually: false)
+                    resumeRequested = Date()
+                }
+            } else if resumeRequested != nil, positionSeconds > 0,
+                      abs(positionSeconds - target) < max(2, min(5, target * 0.1)), isPlaying || isPaused {
+                resumeTarget = nil; resumeRequested = nil; restoringPosition = false
+            }
+            if restoringPosition, Date().timeIntervalSince(resumeRequested ?? lastStart) > 12 {
+                resumeTarget = nil; resumeRequested = nil; restoringPosition = false; resumeFailed = true
+            }
+        }
     }
 
     func updateStatus() {
@@ -248,6 +283,7 @@ final class Playback: ObservableObject {
         let state = handle.api.state(handle.pointer)
         var width: UInt32 = 0, height: UInt32 = 0
         _ = handle.api.videoSize(handle.pointer, 0, &width, &height)
+        hasVideo = width > 0 && height > 0
         isPlaying = state == 3 && width > 0
         isPaused = state == 4
         ended = state == 6
@@ -262,8 +298,40 @@ final class Playback: ObservableObject {
     }
 }
 
+/// SwiftUI may keep the previous surface alive during a full-screen transition.
+/// Give each surface its own host so only the current parent sizes VLC's canvas.
+final class VideoHost: NSView {
+    let canvas: VideoCanvas
+    init(canvas: VideoCanvas) {
+        self.canvas = canvas
+        super.init(frame: .zero)
+        addSubview(canvas)
+        canvas.autoresizingMask = [.width, .height]
+        canvas.frame = bounds
+    }
+    required init?(coder: NSCoder) { nil }
+    func setCornerRadius(_ radius: CGFloat) {
+        guard radius > 0 || layer != nil else { return }
+        wantsLayer = true
+        layer?.cornerRadius = radius
+        layer?.masksToBounds = radius > 0
+    }
+    override func layout() {
+        super.layout()
+        if canvas.superview === self { canvas.frame = bounds }
+    }
+}
+
 struct VideoSurface: NSViewRepresentable {
     let playback: Playback
-    func makeNSView(context: Context) -> NSView { playback.canvas }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    var cornerRadius: CGFloat = 0
+    func makeNSView(context: Context) -> VideoHost {
+        let view = VideoHost(canvas: playback.canvas)
+        view.setCornerRadius(cornerRadius)
+        return view
+    }
+    func updateNSView(_ nsView: VideoHost, context: Context) {
+        nsView.setCornerRadius(cornerRadius)
+        nsView.needsLayout = true
+    }
 }

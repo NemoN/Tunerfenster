@@ -6,7 +6,19 @@ import Darwin
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var monitor: Monitor?
     weak var updater: UpdateChecker?
+    private var terminating = false
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let monitor else { return .terminateNow }
+        if !terminating {
+            terminating = true
+            Task {
+                await monitor.recordings.prepareForTermination()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
+    }
     func applicationWillTerminate(_ notification: Notification) { monitor?.shutdown() }
     func applicationDidBecomeActive(_ notification: Notification) {
         LanguageStore.shared.localizeNativeMenus()
@@ -115,21 +127,58 @@ private struct MonitorView: View {
     @State private var availableSize = CGSize(width: 1280, height: 700)
     @State private var choosingTVChannel = false
     @StateObject private var playbackWindow = PlaybackWindow()
-    private var videoOnly: Bool { playbackWindow.fullScreen && (focusedID != nil || monitor.viewingMode == .recordings && recordings.selected != nil) }
+    private var videoOnly: Bool { playbackWindow.fullScreen && (focusedID != nil || monitor.viewingMode == .recordings && recordings.selected != nil && recordings.playbackRequested) }
+    private var fullScreenVideo: NSView? {
+        if monitor.viewingMode == .recordings {
+            return recordings.playbackRequested ? recordings.playback.canvas : nil
+        }
+        return focusedID.map { monitor.player(for: $0).canvas }
+    }
 
     private var visible: [Tuner] {
         if let focusedID { return monitor.tuners.filter { $0.id == focusedID } }
-        return monitor.tuners.filter { !onlyBusy || monitor.preview(for: $0) != nil || $0.hasOwnPreview || $0.hasEPG || $0.unresolvedTV }
+        return monitor.tuners.filter { tuner in
+            let physical = monitor.headerTuner(for: tuner)
+            return !onlyBusy || monitor.preview(for: tuner) != nil || physical.hasOwnPreview || physical.hasEPG || physical.unresolvedTV || !physical.previews.isEmpty
+        }
     }
 
     var body: some View {
         Group {
             if videoOnly, monitor.viewingMode == .recordings {
-                ZStack { Color.black; VideoSurface(playback: recordings.playback) }.ignoresSafeArea()
-            } else if videoOnly, let focusedID, monitor.tuners.contains(where: { $0.id == focusedID }) {
+                ZStack { Color.black; VideoSurface(playback: recordings.playback) }
+                    .overlay(alignment: .bottom) {
+                        if let item = recordings.selected {
+                            FullScreenPlaybackOverlay(visibility: playbackWindow.controls, title: item.name, detail: item.channelname) {
+                                RecordingTransportView(library: recordings, playback: recordings.playback, item: item,
+                                                       fullScreen: true, onEditingChanged: { playbackWindow.controls.interact($0) })
+                            }
+                        }
+                    }.ignoresSafeArea()
+            } else if videoOnly, let focusedID, let tuner = monitor.tuners.first(where: { $0.id == focusedID }) {
                 ZStack {
                     Color.black
                     VideoSurface(playback: monitor.player(for: focusedID))
+                }.overlay(alignment: .bottom) {
+                    FullScreenPlaybackOverlay(visibility: playbackWindow.controls,
+                                              title: monitor.preview(for: tuner)?.title ?? tuner.input.shortName,
+                                              detail: monitor.headerTuner(for: tuner).input.shortName) {
+                        HStack(spacing: 14) {
+                            Button { monitor.switchFocusedChannel(direction: -1) } label: {
+                                Image(systemName: "chevron.up").frame(width: 28, height: 28)
+                            }.help(L10n.text("previousChannelHelp")).accessibilityLabel(L10n.text("previousChannel"))
+                            Button { monitor.switchFocusedChannel(direction: 1) } label: {
+                                Image(systemName: "chevron.down").frame(width: 28, height: 28)
+                            }.help(L10n.text("nextChannelHelp")).accessibilityLabel(L10n.text("nextChannel"))
+                            Spacer()
+                            Button { monitor.toggleAudio(tuner.id) } label: {
+                                Image(systemName: monitor.audioID == tuner.id ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                    .frame(width: 28, height: 28)
+                            }.help(L10n.text(monitor.audioID == tuner.id ? "muteHelp" : "unmuteHelp"))
+                                .accessibilityLabel(L10n.text("audioForChannel", monitor.preview(for: tuner)?.title ?? tuner.input.shortName))
+                                .accessibilityValue(L10n.text(monitor.audioID == tuner.id ? "audioOn" : "audioMuted"))
+                        }.buttonStyle(.plain).font(.title3)
+                    }
                 }.ignoresSafeArea()
             } else {
                 monitorContent
@@ -139,14 +188,14 @@ private struct MonitorView: View {
                                          blocked: settingsVisible || choosingTVChannel,
                                          leaveZoom: { monitor.setViewingMode(.mosaic) },
                                          switchChannel: { monitor.switchFocusedChannel(direction: $0) },
-                                         toggleMute: { monitor.toggleMute() }))
+                                         toggleMute: { monitor.toggleMute() }, videoView: fullScreenVideo))
         .toolbar(videoOnly ? .hidden : .automatic, for: .windowToolbar)
         .environmentObject(playbackWindow)
         .task(id: monitor.viewingMode) {
             guard monitor.viewingMode == .recordings else { return }
             var ticks = 0
             while !Task.isCancelled {
-                await recordings.playback.updateTimeline(fallbackDuration: recordings.selected?.recordedDuration ?? 0)
+                await recordings.updatePlayback()
                 if ticks % 30 == 0 { await recordings.refresh() }
                 ticks += 1
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
@@ -173,7 +222,7 @@ private struct MonitorView: View {
             if monitor.canSelectFocusedTuner, let tuner = monitor.tuners.first(where: { $0.id == focusedID }) {
                 HStack(spacing: 12) {
                     Picker(L10n.text("tvTuner"), selection: Binding(get: { tuner.id }, set: { monitor.selectFocusedTuner($0) })) {
-                        ForEach(monitor.tuners) { item in Text(item.input.shortName).tag(item.id) }
+                        ForEach(monitor.tuners) { item in Text(monitor.headerTuner(for: item).input.shortName).tag(item.id) }
                     }.frame(maxWidth: 330).help(L10n.text("tvTunerHelp"))
                     Spacer(minLength: 0)
                 }.padding(.horizontal, 18).padding(.bottom, 10)
@@ -297,7 +346,7 @@ private struct MonitorView: View {
                 } } label: { Label(L10n.text("refresh"), systemImage: "arrow.clockwise") }
                     .help(L10n.text(monitor.viewingMode == .recordings ? "refreshRecordings" : "refreshHelp"))
                     .disabled(monitor.viewingMode == .recordings ? recordings.loading : monitor.paused)
-                Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: { Label(L10n.text("fullScreen"), systemImage: "arrow.up.left.and.arrow.down.right") }.help(L10n.text("fullScreenHelp"))
+                Button { playbackWindow.toggleFullScreen() } label: { Label(L10n.text("fullScreen"), systemImage: "arrow.up.left.and.arrow.down.right") }.help(L10n.text("fullScreenHelp"))
                 AppearanceButton()
                 Button { settingsVisible = true } label: { Label(L10n.text("settings"), systemImage: "gearshape") }.help(L10n.text("serverHelp"))
             }
@@ -378,45 +427,55 @@ private struct TunerTile: View {
     @AppStorage("lnbSwitchMHz") private var switchMHz = 11700.0
 
     private var preview: Preview? { monitor.preview(for: tuner) }
+    private var headerTuner: Tuner { monitor.headerTuner(for: tuner) }
     private var active: Bool { preview != nil && monitor.connected && !monitor.paused }
-    private var state: String {
-        if !monitor.connected { return L10n.text("offline") }
-        if monitor.paused { return L10n.text("paused") }
-        if monitor.manual[tuner.id] != nil { return L10n.text("manualMode") }
-        if monitor.savedManual[tuner.id] != nil { return L10n.text("savedChannelMissing") }
-        if preview != nil { return L10n.text("followingMode") }
-        if tuner.hasOwnPreview { return L10n.text("ownPreview") }
-        if tuner.unresolvedTV { return L10n.text("unmappedTV") }
-        return tuner.hasEPG ? "EPG" : L10n.text("idle")
+    private var stateKey: String {
+        if !monitor.connected { return "offline" }
+        if monitor.paused { return "paused" }
+        if monitor.manual[tuner.id] != nil { return "manualMode" }
+        if monitor.savedManual[tuner.id] != nil { return "savedChannelMissing" }
+        if preview != nil { return "followingMode" }
+        if headerTuner.hasOwnPreview { return "ownPreview" }
+        if headerTuner.unresolvedTV || !headerTuner.previews.isEmpty { return "unmappedTV" }
+        return headerTuner.hasEPG ? "EPG" : "idle"
+    }
+    private var state: String { stateKey == "EPG" ? "EPG" : L10n.text(stateKey) }
+    private var shortState: String {
+        switch stateKey {
+        case "manualMode": return "M"
+        case "idle": return "F"
+        default: return state
+        }
     }
     private var stateColor: Color {
-        if !monitor.connected || monitor.paused || tuner.unresolvedTV || monitor.savedManual[tuner.id] != nil && preview == nil { return ThemeColors.warning }
-        return preview != nil || tuner.hasOwnPreview ? ThemeColors.active : .secondary
+        if !monitor.connected || monitor.paused || headerTuner.unresolvedTV || monitor.savedManual[tuner.id] != nil && preview == nil { return ThemeColors.warning }
+        return preview != nil || headerTuner.hasOwnPreview ? ThemeColors.active : .secondary
     }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text(tuner.input.shortName).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                    .help(tuner.input.input)
+                Text(headerTuner.input.shortName).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                    .help(headerTuner.input.input)
                 Spacer(minLength: 0)
-                Text(state).font(.system(size: 10, weight: .semibold)).foregroundStyle(stateColor).lineLimit(1)
+                Text(shortState).font(.system(size: 10, weight: .semibold)).foregroundStyle(stateColor).lineLimit(1)
+                    .help(state).accessibilityLabel(state)
                 Button { choosingChannel.toggle() } label: { Image(systemName: "list.bullet") }
                     .buttonStyle(.plain).help(L10n.text("chooseChannel"))
-                    .accessibilityLabel(L10n.text("chooseChannelFor", tuner.input.shortName))
+                    .accessibilityLabel(L10n.text("chooseChannelFor", headerTuner.input.shortName))
                     .popover(isPresented: $choosingChannel, arrowEdge: .bottom) {
                         ChannelSelectionView(monitor: monitor, tuner: tuner) { choosingChannel = false }
                     }
                 Button { showingReception.toggle() } label: { Image(systemName: "info.circle") }
                     .buttonStyle(.plain).help(L10n.text("receptionDetails"))
-                    .accessibilityLabel(L10n.text("receptionFor", tuner.input.shortName))
+                    .accessibilityLabel(L10n.text("receptionFor", headerTuner.input.shortName))
                     .popover(isPresented: $showingReception, arrowEdge: .bottom) {
                         ReceptionDetailsView(monitor: monitor, tuner: tuner)
                     }
                 if monitor.viewingMode != .tv { Button(action: toggleFocus) {
                     Image(systemName: focused ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 }.buttonStyle(.plain).help(focused ? L10n.text("showAllTuners") : L10n.text("enlargeTuner"))
-                    .accessibilityLabel(focused ? L10n.text("showAllTuners") : L10n.text("enlargeNamedTuner", tuner.input.shortName)) }
+                    .accessibilityLabel(focused ? L10n.text("showAllTuners") : L10n.text("enlargeNamedTuner", headerTuner.input.shortName)) }
                 if focused {
                     Button { showingStatistics.toggle() } label: {
                         Image(systemName: "chart.bar.xaxis")
@@ -440,11 +499,12 @@ private struct TunerTile: View {
                         }.padding(12).allowsHitTesting(false)
                     }
                     VStack {
-                        if !focused && monitor.manual[tuner.id] != nil {
+                        if !focused && monitor.showsRoutingNote(for: tuner) {
                             Text(L10n.text("previewVia", manualSources)).font(.system(size: 10))
                                 .lineLimit(1).help(L10n.text("manualRoutingNote"))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 9).padding(.vertical, 4).background(.black.opacity(0.78))
+                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .background { VideoControlsBackground(edge: .top) }
                         }
                         Spacer()
                         HStack {
@@ -466,14 +526,15 @@ private struct TunerTile: View {
                                 .accessibilityValue(L10n.text(monitor.audioID == tuner.id ? "audioOn" : "audioMuted"))
                                 .accessibilityLabel(L10n.text("audioForChannel", preview?.title ?? tuner.input.shortName))
                         }
-                        .padding(.horizontal, 9).padding(.vertical, 7).background(.black.opacity(0.78))
+                        .padding(.horizontal, 9).padding(.vertical, 7)
+                        .background { VideoControlsBackground(edge: .bottom) }
                     }
                 } else {
                     VStack(spacing: 6) {
-                        Image(systemName: !monitor.connected ? "wifi.slash" : tuner.hasOwnPreview ? "play.rectangle" : tuner.hasEPG ? "list.bullet.rectangle" : "tv")
+                        Image(systemName: !monitor.connected ? "wifi.slash" : headerTuner.hasOwnPreview ? "play.rectangle" : headerTuner.hasEPG ? "list.bullet.rectangle" : "tv")
                             .font(.system(size: 22, weight: .light)).foregroundStyle(Color(white: 0.48))
                         Text(idleTitle).font(.system(size: 12)).foregroundStyle(Color(white: 0.7))
-                        if tuner.hasEPG && !tuner.hasOwnPreview && monitor.connected && !monitor.paused {
+                        if headerTuner.hasEPG && !headerTuner.hasOwnPreview && monitor.connected && !monitor.paused {
                             Text(L10n.text("epgNoVideo")).font(.system(size: 10)).foregroundStyle(Color(white: 0.58))
                         }
                     }.padding(8).multilineTextAlignment(.center)
@@ -513,7 +574,7 @@ private struct TunerTile: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(!focused && monitor.audioID == tuner.id ? Color.accentColor : .primary.opacity(0.12), lineWidth: 1))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(tuner.input.shortName), \(state), \(preview?.title ?? "")")
+        .accessibilityLabel("\(headerTuner.input.shortName), \(state), \(preview?.title ?? "")")
     }
 
     private var manualSources: String {
@@ -523,16 +584,16 @@ private struct TunerTile: View {
 
     private var receptionSummary: String {
         monitor.displayedMultiplex(for: tuner)?.summary(switchMHz: switchMHz) ??
-            (monitor.manual[tuner.id] == nil ? tuner.input.stream : nil) ?? L10n.text("noActiveMultiplex")
+            (monitor.manual[tuner.id] == nil ? headerTuner.input.stream : nil) ?? L10n.text("noActiveMultiplex")
     }
 
     private var idleTitle: String {
         if !monitor.connected { return L10n.text("connectionInterrupted") }
         if monitor.paused { return L10n.text("previewPaused") }
         if monitor.savedManual[tuner.id] != nil && preview == nil { return L10n.text("savedChannelMissingHelp") }
-        if tuner.unresolvedTV { return L10n.text("channelUnmapped") }
-        if tuner.hasOwnPreview { return L10n.text("ownPreviewActive") }
-        return tuner.hasEPG ? (tuner.input.stream?.components(separatedBy: " in ").first ?? L10n.text("loadingEPG")) : L10n.text("tunerIdle")
+        if headerTuner.unresolvedTV || !headerTuner.previews.isEmpty { return L10n.text("channelUnmapped") }
+        if headerTuner.hasOwnPreview { return L10n.text("ownPreviewActive") }
+        return headerTuner.hasEPG ? (headerTuner.input.stream?.components(separatedBy: " in ").first ?? L10n.text("loadingEPG")) : L10n.text("tunerIdle")
     }
 }
 

@@ -54,6 +54,7 @@ final class Monitor: ObservableObject {
         self.selectionStore = selectionStore
         self.preferences = preferences
         pollingSeconds = PollingInterval.load(from: preferences)
+        recordings.didDelete = { [weak self] uuid in self?.recorder.forgetRecording(uuid: uuid) }
         channelIcons.countLimit = 32
         channelIcons.totalCostLimit = 8_000_000
     }
@@ -61,7 +62,7 @@ final class Monitor: ObservableObject {
     var liveCount: Int { playbackTuners.filter { preview(for: $0) != nil }.count }
     var busyTunerCount: Int { tuners.filter { ($0.input.subs ?? 0) > 0 }.count }
     var tunerUsage: [TunerUsage] { TunerUsage.overview(tuners: tuners, subscriptions: subscriptions) }
-    var epgCount: Int { tuners.filter { $0.hasEPG && preview(for: $0) == nil }.count }
+    var epgCount: Int { tuners.filter { headerTuner(for: $0).hasEPG && preview(for: $0) == nil }.count }
 
     var playbackTuners: [Tuner] {
         switch viewingMode {
@@ -327,13 +328,42 @@ final class Monitor: ObservableObject {
         Snapshot.multiplex(for: tuner.input, multiplexes: multiplexes)
     }
 
+    private var tunerHeaderIDs: [String: String] {
+        guard connected, !paused else { return [:] }
+        let inputs = tuners.map(\.input)
+        var sources = [String: [String]]()
+        // Saved choices that are stopped in TV mode must not prevent the
+        // playing tile from showing its actual reception source.
+        for tuner in playbackTuners {
+            if let choice = manual[tuner.id] {
+                sources[tuner.id] = Snapshot.sources(for: choice.service, inputs: inputs, subscriptions: subscriptions).map(\.id)
+            } else if savedManual[tuner.id] != nil {
+                sources[tuner.id] = []
+            } else if preview(for: tuner) != nil || tuner.unresolvedTV {
+                sources[tuner.id] = [tuner.id]
+            }
+        }
+        return TunerHeaders.resolve(ids: tuners.map(\.id), sources: sources)
+    }
+
+    func headerTuner(for tuner: Tuner) -> Tuner {
+        let id = tunerHeaderIDs[tuner.id] ?? tuner.id
+        return tuners.first { $0.id == id } ?? tuner
+    }
+
+    func showsRoutingNote(for tuner: Tuner) -> Bool {
+        guard manual[tuner.id] != nil else { return false }
+        let inputs = sources(for: tuner)
+        return !connected || paused || inputs.count != 1 || inputs.first?.id != headerTuner(for: tuner).id
+    }
+
     func displayedMultiplex(for tuner: Tuner) -> Multiplex? {
         if let choice = manual[tuner.id] { return choice.multiplex }
-        return physicalMultiplex(for: tuner)
+        return physicalMultiplex(for: headerTuner(for: tuner))
     }
 
     func sources(for tuner: Tuner) -> [Input] {
-        guard let choice = manual[tuner.id] else { return [tuner.input] }
+        guard let choice = manual[tuner.id] else { return [headerTuner(for: tuner).input] }
         return Snapshot.sources(for: choice.service, inputs: tuners.map(\.input), subscriptions: subscriptions)
     }
 

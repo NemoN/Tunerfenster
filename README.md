@@ -14,8 +14,8 @@ Requires macOS 14 or later. VLC is included.
 
 | Your Mac | Signed and notarized installer |
 | --- | --- |
-| Apple Silicon (M1 or newer) | [Download arm64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.9.0-arm64.dmg) |
-| Intel (64-bit) | [Download x64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.9.0-x86_64.dmg) |
+| Apple Silicon (M1 or newer) | [Download arm64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.10.0-arm64.dmg) |
+| Intel (64-bit) | [Download x64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-1.10.0-x86_64.dmg) |
 
 [All releases and SHA-256 checksums](https://github.com/NemoN/Tunerfenster/releases)
 
@@ -105,9 +105,58 @@ The following examples use fictitious channels and generated test signals.
 - Playback uses VLCKit 3.7.4 / libVLC 3.0.24. Separate builds are available for
   Apple Silicon and Intel.
 - **Recordings** lists recorded programmes and recordings in progress. Search
-  by title or channel, then select a recording to play it. The player has pause,
-  seeking and mute controls. An approximate duration from TVHeadend is marked
+  by title or channel. Click a recording to view programme information, or
+  double-click it to start playback at its saved position.
+  Titles can include an episode name from the subtitle or an explicit episode field
+  in the description, for example “Tatort: Charlie”. This works across series and
+  programmes. Complete titles stay intact; repeated names and genre-only metadata
+  are ignored. If the metadata is ambiguous, the original title remains. This changes
+  only the displayed name, leaving server entries and files untouched. The player has pause,
+  seeking and mute controls. Drag the horizontal divider above the programme
+  information to give it more space and shrink the video. The app remembers
+  the divider position. Selecting another recording stops the current player
+  without starting the new one. An approximate duration from TVHeadend is marked
   **≈** when VLC cannot determine the file duration. Unavailable files are labelled.
+  Delete a completed recording with its trash button or context menu. A confirmation
+  names the recording before permanently deleting its file and entry from TVHeadend.
+  Stop a running recording before deleting it.
+  Server folders appear as expandable groups with recording counts, including
+  subfolders. Recordings in the storage root or alone in a folder appear directly
+  in the list, without a folder to expand. Search also matches folder names;
+  hovering over a recording shows its path.
+  Inside a folder, matching folder names are omitted from recording titles:
+  “Tatort: Charlie” appears as “Charlie” under “Tatort”. Search and the player
+  keep the full title.
+  Each recording fits on one line: viewing status, title, channel, date and duration, with
+  Delete on the right. Use Play in the player or context menu to start it. Small gaps separate aligned columns; numeric dates have
+  leading zeros. A red filled dot after the title means the recording is still
+  running; a warning symbol there marks errors or unavailable files. Hover for details.
+  The leading symbol shows viewing status: an empty circle for unwatched,
+  a half-filled circle for partly watched, and an eye for watched. Hover to see
+  the resume time. Play continues from the saved position.
+  The app syncs progress with TVHeadend every ten seconds, when paused, after
+  seeking, when switching recordings or modes, and on quit. Failed updates stay
+  saved locally for that server/account and are retried. At 90% or playback end,
+  a completed recording is marked watched and its resume position is cleared.
+  Existing watched marks are kept. The context menu offers **Mark as watched** and
+  **Mark as unwatched**. Both clear the resume position and sync the chosen status
+  with TVHeadend. A paused recording keeps that choice until playback continues.
+  Use **Play from beginning** in the player or
+  context menu to start over. Watched status and resume points are shared server
+  data; other clients using the same recording can read or change them.
+  Widen the list by dragging the divider beside the player. The app remembers
+  the list width and which folders are expanded.
+  Duration follows the date as hours:minutes:seconds with a clock icon.
+  It uses the scheduled duration from TVHeadend; the file duration may differ.
+  A dash means unavailable.
+  Narrow lists hide channel and date first, then duration. All rows switch at the
+  same list widths, including recordings inside folders and search results.
+  The name, date and clock symbols beside the total count sort the list. Click the active
+  symbol again to reverse the order. Folders and individual recordings are sorted
+  together, including inside folders. The app remembers the sort order; folders use
+  their newest recording for date sorting and their longest recording for duration
+  sorting, including subfolders. Missing durations stay at the end in either direction.
+  Refresh (⌘R) picks up recordings moved on the server.
   Switching to Recordings stops the app's live streams and keeps your channel assignments.
 
 The title bar shows the installed version. To change how often the app refreshes
@@ -115,11 +164,15 @@ the tuner status, choose an interval from 1 to 60 seconds in Settings or at the
 bottom right of the window. The app saves it automatically.
 
 In the enlarged view, **↑ / ↓** and the arrow buttons switch channels in list
-order, wrapping at either end. Full screen shows only the video. Press **Esc**
+order, wrapping at either end. In full screen, mouse movement shows playback controls,
+which hide after three seconds of inactivity. Recordings also show the timeline.
+Dragging the playhead keeps the controls visible. Press **Esc**
 to leave full screen, then **Esc** again to return to the mosaic.
 Use **⌘1**, **⌘2** and **⌘3** to switch between Mosaic, TV and Recordings.
-The app remembers the last mode. Selecting a recording starts its audio;
-**M** toggles mute. **⌘P** pauses or resumes recording playback.
+The app remembers the last mode. Clicking a recording shows its information.
+Double-clicking, **Play recording** or **⌘P** starts playback with audio. **M** toggles mute.
+During playback, **⌘P** pauses or resumes it. Double-click the video to enter or leave
+full screen. **Esc** or **⌃⌘F** also leaves full screen.
 
 ## Software updates
 

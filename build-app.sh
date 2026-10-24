@@ -36,10 +36,10 @@ app = pathlib.Path(sys.argv[1])
 info = {
     'CFBundleName': 'Tunerfenster', 'CFBundleDisplayName': 'Tunerfenster',
     'CFBundleIdentifier': 'de.local.Tunerfenster', 'CFBundleExecutable': 'Tunerfenster',
-    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '1.9.0',
+    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '1.10.0',
     'CFBundleDevelopmentRegion': 'en', 'CFBundleLocalizations': ['en', 'de'],
     'CFBundleIconFile': 'AppIcon',
-    'CFBundleVersion': '12', 'LSMinimumSystemVersion': '14.0',
+    'CFBundleVersion': '13', 'LSMinimumSystemVersion': '14.0',
     'NSPrincipalClass': 'NSApplication', 'NSHighResolutionCapable': True,
     'NSLocalNetworkUsageDescription': 'Tunerfenster liest den Status deines TVHeadend-Servers und zeigt laufende TV-Streams im lokalen Netzwerk.',
     'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},

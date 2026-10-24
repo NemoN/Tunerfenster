@@ -21,7 +21,7 @@ struct ChannelSelectionView: View {
     var body: some View {
         let currentID = monitor.currentChoice(for: tuner)?.id
         VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.text("chooseChannelFor", tuner.input.shortName)).font(.headline)
+            Text(L10n.text("chooseChannelFor", monitor.headerTuner(for: tuner).input.shortName)).font(.headline)
             Button {
                 monitor.choose(nil, for: tuner); close()
             } label: {
@@ -85,26 +85,30 @@ struct ReceptionDetailsView: View {
     @AppStorage("lnbSwitchMHz") private var switchMHz = 11700.0
 
     var body: some View {
+        let physical = monitor.headerTuner(for: tuner)
+        let input = physical.input
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.text("receptionDetails")).font(.headline)
-            Text(tuner.input.input).font(.callout).textSelection(.enabled)
+            Text(input.input).font(.callout).textSelection(.enabled)
             if let choice = monitor.manual[tuner.id] {
                 Divider()
                 Text(L10n.text("manualPreviewName", choice.name)).font(.subheadline.weight(.semibold))
-                Text(L10n.text("previewVia", sourceNames)).font(.callout).foregroundStyle(.secondary)
+                if monitor.showsRoutingNote(for: tuner) {
+                    Text(L10n.text("previewVia", sourceNames)).font(.callout).foregroundStyle(.secondary)
+                }
                 muxRows(choice.multiplex)
                 Text(L10n.text("manualRoutingNote")).font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             Text(L10n.text("physicalReception")).font(.subheadline.weight(.semibold))
-            muxRows(monitor.physicalMultiplex(for: tuner))
-            if let stream = tuner.input.stream {
-                if monitor.physicalMultiplex(for: tuner) == nil { Text(stream).font(.callout).textSelection(.enabled) }
+            muxRows(monitor.physicalMultiplex(for: physical))
+            if let stream = input.stream {
+                if monitor.physicalMultiplex(for: physical) == nil { Text(stream).font(.callout).textSelection(.enabled) }
                 Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 6) {
-                    row("signal", tuner.input.signalLabel)
-                    if let snr = tuner.input.snrLabel { row("snr", snr) }
-                    row("dataRate", L10n.text("bitrate", L10n.decimal((tuner.input.bps ?? 0) / 1_000_000)))
-                    row("continuityErrors", String(tuner.input.cc ?? 0))
+                    row("signal", input.signalLabel)
+                    if let snr = input.snrLabel { row("snr", snr) }
+                    row("dataRate", L10n.text("bitrate", L10n.decimal((input.bps ?? 0) / 1_000_000)))
+                    row("continuityErrors", String(input.cc ?? 0))
                 }.font(.callout).monospacedDigit()
             }
             Text(L10n.text("bandCalculation", Multiplex.number(switchMHz))).font(.caption).foregroundStyle(.secondary)
@@ -156,18 +160,18 @@ struct FocusedReceptionView: View {
                 Text(L10n.text("receptionDetails")).font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
                 Button { showingDetails = true } label: { Image(systemName: "info.circle") }
-                    .buttonStyle(.plain).accessibilityLabel(L10n.text("receptionFor", tuner.input.shortName))
+                    .buttonStyle(.plain).accessibilityLabel(L10n.text("receptionFor", monitor.headerTuner(for: tuner).input.shortName))
                     .help(L10n.text("receptionDetails"))
                     .popover(isPresented: $showingDetails, arrowEdge: .bottom) {
                         ReceptionDetailsView(monitor: monitor, tuner: tuner)
                     }
             }
-            if monitor.manual[tuner.id] != nil {
-                Text(L10n.text("previewVia", sourceNames)).font(.caption).foregroundStyle(.secondary)
+            if monitor.showsRoutingNote(for: tuner) {
+                Text(L10n.text("previewVia", sourceNames)).font(.caption).foregroundStyle(ThemeColors.detailSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text(monitor.displayedMultiplex(for: tuner)?.summary(switchMHz: switchMHz) ??
-                 (monitor.manual[tuner.id] == nil ? tuner.input.stream : nil) ?? L10n.text("noActiveMultiplex"))
+                 (monitor.manual[tuner.id] == nil ? monitor.headerTuner(for: tuner).input.stream : nil) ?? L10n.text("noActiveMultiplex"))
                 .font(.caption.weight(.medium)).monospacedDigit().textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             if let input = source, input.stream != nil {
@@ -183,12 +187,12 @@ struct FocusedReceptionView: View {
                 }
             } else {
                 Text(L10n.text(monitor.manual[tuner.id] == nil ? "waitingChannel" : "tunerPending"))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ThemeColors.detailSecondary)
             }
         }
         .font(.caption).monospacedDigit()
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background { DetailPanelBackground() }
         .accessibilityElement(children: .contain)
     }
 

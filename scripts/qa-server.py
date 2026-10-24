@@ -6,6 +6,7 @@ python3 scripts/qa-server.py /tmp/test.ts /tmp/tunerfenster-qa
 Launch Tunerfenster --env-file /tmp/tunerfenster-qa/fixture.env.
 Set the fixture's active file to 0 to simulate the original viewer leaving.
 Add --showcase for an eight-tuner demo with fictitious channels, EPG and picon.
+Create a stale-epg file in the fixture root to keep EPG pointing at the first recording after a restart.
 """
 import hashlib
 import json
@@ -28,6 +29,7 @@ lock = threading.Lock()
 streams = {}
 serial = 0
 recordings = {}
+recording_progress = {}
 showcase = '--showcase' in sys.argv[3:]
 numbers = [1, 2, 4, 5] if showcase else [1, 2]
 network = 'Demo Satellite' if showcase else 'Testnetz'
@@ -35,6 +37,19 @@ def channel_name(i):
     return {1: 'Spectrum HD', 2: 'Horizont HD', 4: 'Atelier HD', 5: 'Panorama HD'}.get(i, f'Demo {i}') if showcase else f'Testbild {i}'
 def input_name(i): return f'DVB-S2 #{i}' if showcase else f'Testtuner #{i}'
 def service_path(i): return f'{input_name(i)}/{network}/Mux{i}/{channel_name(i)}'
+
+def library_entries():
+    mode = (root/'dvr-mode').read_text().strip() if (root/'dvr-mode').exists() else 'configured'
+    if mode == 'empty': return []
+    entries = [{'uuid':str(i)*32, 'disp_title':title, 'disp_description':'Generated local test video for recording playback.',
+                'channelname':channel_name(1 if i == 1 else 2), 'start':int(time.time())-i*3600, 'stop':int(time.time())-i*3600+30,
+                'duration':30, 'filesize':clip.stat().st_size if i < 3 else 0,
+                'sched_status':'scheduled' if i == 4 else 'completed', 'url':f'dvrfile/{str(i)*32}',
+                'playposition':0, 'playcount':0, 'watched':0}
+               for i,title in [(1,'Signal & colour'),(2,'Studio session'),(3,'Missing test file'),(4,'Future timer')]]
+    with lock:
+        for entry in entries: entry.update(recording_progress.get(entry['uuid'], {}))
+    return entries
 
 def event(kind, **fields):
     with lock, (root / 'events.jsonl').open('a') as out:
@@ -73,11 +88,7 @@ class Handler(BaseHTTPRequestHandler):
             if mode == 'forbidden':
                 self.send_error(403)
                 return
-            entries = [{'uuid':str(i)*32, 'disp_title':title, 'disp_description':'Generated local test video for recording playback.',
-                        'channelname':channel_name(1 if i == 1 else 2), 'start':int(time.time())-i*3600, 'stop':int(time.time())-i*3600+30,
-                        'duration':30, 'filesize':clip.stat().st_size if i < 3 else 0,
-                        'sched_status':'scheduled' if i == 4 else 'completed', 'url':f'dvrfile/{str(i)*32}'}
-                       for i,title in [(1,'Signal & colour'),(2,'Studio session'),(3,'Missing test file'),(4,'Future timer')]] if mode != 'empty' else []
+            entries = library_entries()
             return self.json({'entries':entries, 'total':len(entries)})
         if path.startswith('/dvrfile/'):
             if path.rsplit('/',1)[1] not in ('1'*32, '2'*32):
@@ -110,12 +121,17 @@ class Handler(BaseHTTPRequestHandler):
             if mode == 'forbidden':
                 self.send_error(403)
                 return
-            entries = [{'uuid':'qa-dvr-profile', 'name':'', 'enabled':True, 'storage':'/local-fixture-recordings'}] if path.endswith('config/grid') and mode != 'unconfigured' else []
+            if path.endswith('config/grid'):
+                entries = [{'uuid':'qa-dvr-profile', 'name':'', 'enabled':True, 'storage':'/local-fixture-recordings'}] if mode != 'unconfigured' else []
+            else:
+                with lock:
+                    entries = [item.copy() for item in recordings.values() if item['sched_status'] == 'recording']
             return self.json({'entries':entries, 'total':len(entries)})
         if path == '/api/idnode/load':
             uuid = parse_qs(urlsplit(self.path).query).get('uuid', [''])[0]
+            entries = [item for item in library_entries() if item['uuid'] == uuid]
             with lock:
-                entries = [item.copy() for item in recordings.values() if item['uuid'] == uuid]
+                entries += [item.copy() for item in recordings.values() if item['uuid'] == uuid]
             return self.json({'entries':entries})
         if path.startswith('/play/ticket/stream/') or path.startswith('/play/ticket/dvrfile/'):
             stream_path = path.removeprefix('/play/ticket')
@@ -144,10 +160,10 @@ class Handler(BaseHTTPRequestHandler):
             entries = [{'eventId':i+1,'channelUuid':channel,'start':now-900+i*3600,'stop':now+2700+i*3600,'title':title,'subtitle':'Tunerfenster · Demo','description':detail} for i,title in enumerate(titles)]
             with lock:
                 for entry in entries:
-                    if str(entry['eventId']) in recordings:
-                        recording = recordings[str(entry['eventId'])]
-                        if recording['channel'] == channel:
-                            entry.update(dvrUuid=recording['uuid'], dvrState=recording['sched_status'])
+                    matches = [item for item in recordings.values() if item['broadcast'] == entry['eventId'] and item['channel'] == channel]
+                    if matches:
+                        recording = matches[0] if (root/'stale-epg').exists() else matches[-1]
+                        entry.update(dvrUuid=recording['uuid'], dvrState=recording['sched_status'])
             return self.json({'entries':entries})
         if path == '/imagecache/demo.png' and (root/'picon.png').is_file():
             data=(root/'picon.png').read_bytes()
@@ -194,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.auth(): return
         path = urlsplit(self.path).path
-        if path not in ('/api/dvr/entry/create_by_event', '/api/dvr/entry/stop'):
+        if path not in ('/api/dvr/entry/create_by_event', '/api/dvr/entry/stop', '/api/idnode/save'):
             self.send_error(404)
             return
         form = parse_qs(self.rfile.read(int(self.headers.get('Content-Length', '0'))).decode())
@@ -202,21 +218,40 @@ class Handler(BaseHTTPRequestHandler):
         if mode == 'forbidden':
             self.send_error(403)
             return
+        if path == '/api/idnode/save':
+            node = json.loads(form.get('node', ['{}'])[0])
+            uuid = node.get('uuid')
+            if uuid not in ('1'*32, '2'*32) or not set(node) <= {'uuid', 'playposition', 'playcount'}:
+                self.send_error(400)
+                return
+            update = {key:node[key] for key in ('playposition', 'playcount') if key in node}
+            with lock: recording_progress.setdefault(uuid, {}).update(update)
+            event('recording-progress', uuid=uuid, **update)
+            return self.json({})
         if path == '/api/dvr/entry/stop':
-            if form.get('uuid') != ['qa-created-recording']:
+            uuid = form.get('uuid', [''])[0]
+            with lock:
+                recording = recordings.get(uuid)
+                if recording:
+                    recording['sched_status'] = 'completed'
+            if not recording:
                 self.send_error(404)
                 return
-            with lock:
-                recordings['1']['sched_status'] = 'completed'
-            event('recording-stopped', method='POST', uuid='qa-created-recording', file_kept=(root/'qa-created-recording.ts').is_file())
+            event('recording-stopped', method='POST', uuid=uuid, file_kept=(root/f'{uuid}.ts').is_file())
             return self.json({'success':1})
         if mode in ('reject', 'unconfigured') or form.get('event_id') != ['1'] or form.get('config_uuid') != ['qa-dvr-profile']:
             return self.json({})
-        shutil.copyfile(clip, root/'qa-created-recording.ts')
         with lock:
-            recordings['1'] = {'uuid':'qa-created-recording', 'channel':'channel-1', 'broadcast':1, 'sched_status':'recording'}
-        event('recording-created', method='POST', event_id='1', profile='qa-dvr-profile')
-        self.json({'uuid':['qa-created-recording']})
+            if any(item['channel'] == 'channel-1' and item['broadcast'] == 1 and item['sched_status'] == 'recording' for item in recordings.values()):
+                uuid = None
+            else:
+                uuid = 'qa-created-recording' + (f'-{len(recordings)+1}' if recordings else '')
+                shutil.copyfile(clip, root/f'{uuid}.ts')
+                recordings[uuid] = {'uuid':uuid, 'channel':'channel-1', 'broadcast':1, 'sched_status':'recording'}
+        if not uuid:
+            return self.json({})
+        event('recording-created', method='POST', uuid=uuid, event_id='1', profile='qa-dvr-profile')
+        self.json({'uuid':[uuid]})
 
 print('Local digest-auth playback fixture: 127.0.0.1:18781',flush=True)
 ThreadingHTTPServer(('127.0.0.1',18781),Handler).serve_forever()
