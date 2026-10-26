@@ -56,6 +56,35 @@ final class TunerUsageTests: XCTestCase {
         XCTAssertTrue(TunerUsage.overview(tuners: [], subscriptions: subscriptions).isEmpty)
     }
 
+    func testRecordingMarkersUseActiveDVRSubscriptionsOnTheCorrectInput() {
+        let a = tuner("Adapter DVB-S/S2 #1", subscribers: 2)
+        let b = tuner("Adapter DVB-S/S2 #10", subscribers: 2)
+        let idle = tuner("Idle", subscribers: 0)
+        let subscriptions = [
+            Subscription(id: 1, channel: "News", service: a.id + "/Sat/Mux/News", title: "HTTP"),
+            Subscription(id: 2, service: a.id + "/Sat/Mux/Raw PID Subscription", title: "epggrab"),
+            Subscription(id: 3, channel: "Film", service: b.id + "/Sat/Mux/Film", title: "DVR: Film"),
+            Subscription(id: 4, channel: "News", service: b.id + "/Sat/Mux/News", title: "DVR: News"),
+            Subscription(id: 5, title: "DVR: Not assigned yet"),
+            Subscription(id: 6, service: idle.id + "/Sat/Mux/Film", title: "DVR: Stale status"),
+            Subscription(id: 7, service: a.id + "/Sat/Mux/News", title: "HTTP", client: previewClient)
+        ]
+        XCTAssertEqual(TunerUsage.recordingInputIDs(tuners: [a, b, idle], subscriptions: subscriptions), [b.id])
+        XCTAssertTrue(TunerUsage.recordingInputIDs(tuners: [a, b, idle], subscriptions: []).isEmpty,
+                      "The indicator must disappear after the recorder subscription ends")
+    }
+
+    func testRecordingMarkerFollowsSwappedHeaderRatherThanOriginalTile() {
+        let six = tuner("6", subscribers: 0)
+        let eight = tuner("8", subscribers: 2)
+        let subscriptions = [Subscription(id: 1, channel: "RTL", service: "8/Sat/Mux/RTL", title: "DVR: Programme")]
+        let recordingInputs = TunerUsage.recordingInputIDs(tuners: [six, eight], subscriptions: subscriptions)
+        let presentation = TunerHeaders.presentation(tuners: [six, eight], manualSources: [six.id: [eight.id]],
+                                                       manualPaths: [six.id: "RTL"], activeIDs: [six.id, eight.id])
+        XCTAssertTrue(recordingInputs.contains(presentation.headers[six.id]!))
+        XCTAssertFalse(recordingInputs.contains(presentation.headers[eight.id]!))
+    }
+
     func testUsageNamesAndDetailsPreferChannelAndRecorderProgrammeWithoutLeakingServicePaths() {
         let input = tuner("Adapter DVB-S/S2 #1", subscribers: 1).input
         let recording = Subscription(id: 1, channel: "News", service: input.id + "/Sat/Mux/Raw", title: "DVR: Evening news")

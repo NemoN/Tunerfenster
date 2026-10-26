@@ -10,3 +10,4 @@ for architecture in arm64 x86_64; do
     TARGET_ARCH="$architecture" ./release-app.sh --profile "$2"
     TARGET_ARCH="$architecture" ./release-dmg.sh --profile "$2"
 done
+./scripts/generate-update-feeds.sh

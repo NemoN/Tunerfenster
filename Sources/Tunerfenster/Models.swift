@@ -27,11 +27,24 @@ struct Input: Decodable, Identifiable, Sendable {
         return input.components(separatedBy: " (").first ?? input
     }
 
+    var tunerNumber: String? {
+        let name = shortName
+        return name.range(of: #"#\d+"#, options: .regularExpression).map { String(name[$0]) }
+    }
+
     var signalLabel: String {
         switch signal_scale {
         case 1: return "Signal \(Int(max(0, min(100, (signal ?? 0) / 65535 * 100)))) %"
         case 2: return L10n.text("signalDBm", L10n.decimal((signal ?? 0) / 1000))
         default: return "Signal –"
+        }
+    }
+
+    var compactSignal: String {
+        switch signal_scale {
+        case 1: return "\(Int(max(0, min(100, (signal ?? 0) / 65535 * 100)))) %"
+        case 2: return "\(L10n.decimal((signal ?? 0) / 1000)) dBm"
+        default: return "–"
         }
     }
 
@@ -51,6 +64,7 @@ struct Subscription: Decodable, Identifiable, Sendable {
     var title: String? = nil
     var client: String? = nil
     var state: String? = nil
+    var start: TimeInterval? = nil
 
     var isPreview: Bool { (client ?? "").hasPrefix("Tunerfenster/") }
     var isEPG: Bool {
@@ -66,6 +80,7 @@ struct Service: Decodable, Sendable {
     var svcname: String? = nil
     var enabled: Bool? = nil
     var multiplex_uuid: String? = nil
+    var encrypted: Bool? = nil
 
     var path: String { [network ?? "", multiplex ?? "", svcname ?? ""].joined(separator: "/") }
 }
@@ -89,6 +104,7 @@ struct Preview: Identifiable, Equatable, Sendable {
     let title: String
     let path: String
     let sourceState: String
+    var encrypted: Bool = false
 }
 
 struct Multiplex: Decodable, Identifiable, Sendable {
@@ -130,7 +146,7 @@ struct StreamChoice: Identifiable, Sendable {
     let mapped: Bool
     let multiplex: Multiplex?
     var id: String { service.uuid }
-    var preview: Preview { Preview(id: -1, title: name, path: "stream/service/\(id)", sourceState: "") }
+    var preview: Preview { Preview(id: -1, title: name, path: "stream/service/\(id)", sourceState: "", encrypted: service.encrypted == true) }
 
     static func catalog(services: [Service], channels: [Channel], multiplexes: [Multiplex]) -> [StreamChoice] {
         let muxes = Dictionary(multiplexes.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
@@ -215,7 +231,7 @@ enum Snapshot {
             let previews: [Preview] = tv.sorted { $0.id < $1.id }.compactMap { sub in
                 let servicePath = String((sub.service ?? "").dropFirst(prefix.count))
                 if let service = serviceIndex[servicePath] {
-                    return Preview(id: sub.id, title: sub.channel ?? service.svcname ?? "TV", path: "stream/service/\(service.uuid)", sourceState: sub.state ?? "")
+                    return Preview(id: sub.id, title: sub.channel ?? service.svcname ?? "TV", path: "stream/service/\(service.uuid)", sourceState: sub.state ?? "", encrypted: service.encrypted == true)
                 }
                 // Fallback for restricted service APIs, only if the channel is unambiguous.
                 let matches = channels.filter { $0.enabled != false && $0.name == sub.channel }
@@ -236,6 +252,40 @@ struct GridFit {
     let width: Double
     let height: Double
 
+    static func groupedRows(counts: [Int], columns: Int) -> Int {
+        guard columns > 0 else { return 0 }
+        return counts.reduce(0) { $0 + ($1 > 0 ? ($1 + columns - 1) / columns : 0) }
+    }
+
+    static func canFitGroups(counts: [Int], width: Double, height: Double, columns: Int) -> Bool {
+        let maximum = counts.max() ?? 0
+        guard maximum > 0, columns > 0 else { return false }
+        let columns = min(columns, maximum)
+        let rows = groupedRows(counts: counts, columns: columns)
+        let available = height - Double(counts.count) * 40 - Double(max(0, counts.count - 1)) * 8
+        let cellW = (width - Double(columns - 1) * 10) / Double(columns)
+        let cellH = (available - Double(max(0, rows - counts.filter { $0 > 0 }.count)) * 10) / Double(rows)
+        return cellW >= 112 && cellH >= 90
+    }
+
+    static func calculateGroups(counts: [Int], width: Double, height: Double, preferredColumns: Int = 0) -> GridFit {
+        let maximum = counts.max() ?? 0
+        guard maximum > 0 else { return GridFit(columns: 1, rows: 0, width: max(0, width), height: 0) }
+        let choices = canFitGroups(counts: counts, width: width, height: height, columns: preferredColumns)
+            ? [min(maximum, preferredColumns)] : Array(1...maximum)
+        var best = GridFit(columns: 1, rows: 0, width: 0, height: 0), bestArea = -1.0
+        for columns in choices {
+            let rows = groupedRows(counts: counts, columns: columns)
+            let available = height - Double(counts.count) * 40 - Double(max(0, counts.count - 1)) * 8
+            let cellW = max(0, (width - Double(columns - 1) * 10) / Double(columns))
+            let cellH = max(0, (available - Double(max(0, rows - counts.filter { $0 > 0 }.count)) * 10) / Double(rows))
+            let videoH = max(0, min(cellH - 52, cellW * 9 / 16))
+            let area = videoH * videoH * 16 / 9
+            if area > bestArea { bestArea = area; best = GridFit(columns: columns, rows: rows, width: cellW, height: cellH) }
+        }
+        return best
+    }
+
     static func canFit(count: Int, width: Double, height: Double, columns: Int) -> Bool {
         guard count > 0, columns > 0 else { return false }
         let columns = min(columns, count)
@@ -248,7 +298,7 @@ struct GridFit {
     static func calculate(count: Int, width: Double, height: Double, preferredColumns: Int = 0) -> GridFit {
         guard count > 0 else { return GridFit(columns: 1, rows: 1, width: max(0, width), height: max(0, height)) }
         let gap = 10.0
-        let chrome = 76.0
+        let chrome = 52.0
         var best = GridFit(columns: 1, rows: count, width: 0, height: 0)
         var bestArea = -1.0
         let manualFits = canFit(count: count, width: width, height: height, columns: preferredColumns)

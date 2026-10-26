@@ -50,6 +50,14 @@ enum UpdateArchitecture: String {
         return resolve(nativeARM: false, translated: success && translated == 1)
         #endif
     }
+
+    static var running: Self {
+        #if arch(arm64)
+        return .appleSilicon
+        #else
+        return .intel
+        #endif
+    }
 }
 
 struct GitHubRelease: Codable {
@@ -85,7 +93,12 @@ struct GitHubRelease: Codable {
         // or another architecture's installer from becoming the download action.
         let matches = assets.filter { $0.name == filename && $0.state == "uploaded" && $0.size > 0 && $0.browserDownloadURL == expected }
         let downloadURL = matches.count == 1 ? URL(string: expected) : nil
-        return .available(AppUpdate(version: version, architecture: architecture, releaseURL: releaseURL, downloadURL: downloadURL))
+        let feedName = "appcast-\(architecture.rawValue).xml"
+        let feedURL = "https://github.com/NemoN/Tunerfenster/releases/download/\(tagName)/\(feedName)"
+        let feeds = assets.filter { $0.name == feedName && $0.state == "uploaded" && $0.size > 0 && $0.browserDownloadURL == feedURL }
+        return .available(AppUpdate(version: version, architecture: architecture, releaseURL: releaseURL,
+                                    downloadURL: downloadURL,
+                                    installationFeedURL: downloadURL != nil && feeds.count == 1 ? URL(string: feedURL) : nil))
     }
 }
 
@@ -94,6 +107,7 @@ struct AppUpdate {
     let architecture: UpdateArchitecture
     let releaseURL: URL
     let downloadURL: URL?
+    let installationFeedURL: URL?
 }
 
 enum UpdateResult {

@@ -1,10 +1,10 @@
 import Foundation
 
-struct RecordingFile: Decodable, Sendable {
+struct RecordingFile: Decodable, Equatable, Sendable {
     var filename: String? = nil
 }
 
-struct RecordingStorage: Decodable, Sendable {
+struct RecordingStorage: Decodable, Equatable, Sendable {
     let uuid: String
     var name: String? = nil
     var storage: String? = nil

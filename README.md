@@ -71,15 +71,25 @@ The following examples use fictitious channels and generated test signals.
 
 ### Live TV
 
-Mosaic fits all tuners into one window. TV mode plays the selected tuner and
-stops the other streams. The programme guide shows the current and next
+You can save multiple TVHeadend servers in Settings. Mosaic groups the tuners
+by server; choose the server at the top left for TV and recordings. Channel
+assignments are saved separately for each server.
+
+TV mode plays the selected tuner and stops the other streams. The programme
+guide shows the current and next
 programmes, their descriptions and programme progress. TVHeadend picons,
 including SRP picons, appear beside the channel name in the enlarged view.
+In Mosaic and TV mode, a filled red circle after the tuner name marks an active
+recording on that TVHeadend input.
 
 Follow mode shows channels already running on the server. Idle tuners and EPG
 scans have their own labels. To choose a channel yourself, open the selector
 for a tile. It opens at the current channel; double-click a row or click
 **Switch channel** to tune it. **Follow all** clears the manual assignments.
+
+The tile stays in place when TVHeadend picks another tuner. If the mapping is
+unambiguous, the headers swap to show the actual tuners. A following tile does
+not repeat a manual stream from the same input.
 
 Use the up/down buttons or **Choose channel** to change channels in the
 single-channel view. These controls sit before **Use all tuners**. Below the
@@ -89,11 +99,16 @@ and continuity errors, where TVHeadend supplies them. The statistics button
 above the video opens VLC's input, demux, video and audio counters over the
 picture, with new values every second.
 
+In TV mode, drag the dot between the programme guide and reception details to
+resize the two panels. A taller reception panel reveals more technical data;
+you can also scroll through it. The panel sizes are saved.
+
 In the TV programme guide, **Record** starts a recording on TVHeadend. Your
 account needs recording permission and an active recording profile. The EPG
 end time plus the profile's extra recording time determines when it stops.
 The guide also shows existing recordings. The red button pulses while
 recording; **Stop recording** ends it and keeps the file recorded so far.
+The elapsed recording time appears next to the stop button as hours:minutes:seconds.
 
 ### Recordings
 
@@ -104,6 +119,18 @@ from the saved position with audio. The player has pause, seeking and mute
 controls. Selecting another recording stops playback and shows its information
 without starting it. Switching to Recordings stops the app's live streams and
 keeps your channel assignments.
+
+Comskip commercial markers appear as orange sections on the timeline, in the
+window and in full screen. You can turn on automatic skipping in Settings.
+Each break is skipped once per playback; seeking back lets you watch it.
+The recording file is unchanged.
+
+TVHeadend reads Comskip `.txt` and EDL `.edl` files beside the recording. Tunerfenster
+fetches these markers through HTSP using your existing credentials. HTSP normally
+uses port 9982 on the TVHeadend server; change the host or port under
+**Settings → Commercial markers** if needed. Comskip must already be configured
+on the server. Markers are checked when you select a recording. Missing markers
+or an HTSP error do not prevent playback.
 
 Drag the divider beside the player to change the list width. Drag the divider
 above the programme information to give the text more space and make the video
@@ -204,10 +231,18 @@ When an update is available, **View update** shows the download for your Mac.
 Apple Silicon is detected even when the Intel app runs under Rosetta.
 
 Use **Tunerfenster → Check for Updates…** to check manually. You can turn off
-automatic checks in Settings or the Software Updates window. Install updates
-manually: download the DMG in your browser, quit Tunerfenster and replace the
-app. Your settings are kept. The check sends no TVHeadend address, credentials
-or tuner information to GitHub.
+automatic checks in Settings or the Software Updates window.
+
+For releases with a signed update feed, **Install update…** opens the installer.
+Sparkle downloads and verifies the update, then replaces and restarts the app
+when you confirm. Your settings are kept. Published versions through 2.0 need
+one manual update to get this installer. Releases without a signed feed still
+offer the DMG: download it in your browser, quit Tunerfenster and replace the app.
+
+The installed version line shows the architecture of the running app. If an
+Intel build runs under Rosetta, the window explains that the update will install
+the native Apple Silicon build. Update checks send no TVHeadend address,
+credentials or tuner information to GitHub.
 
 ## How it works
 
@@ -275,3 +310,6 @@ later. The app includes the license, source references and instructions for
 replacing the framework. See [third-party notices](Resources/ThirdPartyNotices.txt).
 Tunerfenster loads the framework dynamically, so a compatible modified build
 can replace it for local use.
+
+Sparkle handles in-app updates. Its license and bundled third-party notices
+are included in Sparkle-LICENSE.txt in the app.

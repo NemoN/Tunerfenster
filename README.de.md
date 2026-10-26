@@ -72,16 +72,27 @@ Die folgenden Beispiele verwenden erfundene Sender und erzeugte Testsignale.
 
 ### Live-TV
 
-Das Mosaik zeigt alle Tuner in einem Fenster. Im TV-Modus läuft der gewählte
-Tuner, die übrigen Streams stoppen. Der Programmführer zeigt die laufende und
+In den Einstellungen kannst du mehrere TVHeadend-Server hinterlegen. Das
+Mosaik gruppiert ihre Tuner nach Server; für TV und Aufnahmen wählst du den Server
+oben links. Senderzuordnungen werden pro Server gespeichert.
+
+Im TV-Modus läuft der gewählte Tuner, die übrigen Streams stoppen. Der
+Programmführer zeigt die laufende und
 die nächste Sendung mit Beschreibung und Fortschritt. TVHeadend-Senderlogos,
 auch SRP-Picons, stehen in der vergrößerten Ansicht neben dem Sendernamen.
+Im Mosaik und im TV-Modus zeigt ein roter ausgefüllter Kreis hinter dem
+Tunernamen eine laufende Aufnahme auf diesem TVHeadend-Eingang an.
 
 **Folgen** zeigt Sender, die bereits auf dem Server laufen. Freie Tuner und
 EPG-Abfragen haben eigene Statusanzeigen. Um selbst einen Sender zu wählen,
 öffne die Senderliste einer Kachel. Sie öffnet sich beim aktuellen Sender;
 ein Doppelklick oder **Sender wechseln** schaltet um. **Alle auf Folgen** setzt
 die manuellen Zuordnungen zurück.
+
+Die Kachel bleibt an ihrem Platz, wenn TVHeadend einen anderen Tuner nutzt.
+Ist die Zuordnung eindeutig, tauschen die Kopfzeilen ihre Beschriftungen und
+zeigen die tatsächlichen Tuner. Eine folgende Kachel spielt denselben
+manuellen Stream vom gleichen Eingang nicht noch einmal ab.
 
 In der Einzelansicht wechselst du den Sender mit den Pfeilbuttons oder
 **Sender wählen**. Diese stehen vor **Alle belegen**. Unter dem EPG findest du
@@ -90,11 +101,17 @@ Satellitenposition, Signal, SNR, Datenrate und CC-Fehler, soweit TVHeadend sie
 liefert. Das Statistiksymbol über dem Video blendet VLCs Eingangs-, Demux-,
 Video- und Audiozähler ins Bild ein. Die Werte werden jede Sekunde aktualisiert.
 
+Im TV-Modus kannst du den Punkt zwischen EPG und Empfangsdaten ziehen, um die
+Bereiche zu vergrößern oder zu verkleinern. Ein höherer Empfangsbereich zeigt
+weitere technische Daten; du kannst darin auch scrollen. Die Aufteilung wird
+gespeichert.
+
 **Aufnehmen** im EPG des TV-Modus startet eine Aufnahme auf TVHeadend. Dein
 Benutzer braucht Aufnahmerechte und ein aktives Aufnahmeprofil. Das EPG-Ende
 und der Nachlauf des Profils bestimmen, wann sie endet. Der Programmführer
 zeigt auch vorhandene Aufnahmen. Während der Aufnahme pulsiert der rote
 Button. **Aufnahme stoppen** beendet sie und behält die bisherige Datei.
+Die bisherige Aufnahmedauer steht neben dem Stoppbutton als Stunden:Minuten:Sekunden.
 
 ### Aufnahmen
 
@@ -106,6 +123,19 @@ Tonsteuerung. Wenn du eine andere Aufnahme auswählst, stoppt die Wiedergabe.
 Die App zeigt die neuen Infos, ohne die Aufnahme zu starten. Beim Wechsel zu
 Aufnahmen stoppen die Live-Streams der App; deine Senderzuordnungen bleiben
 gespeichert.
+
+Comskip-Werbemarkierungen erscheinen als orange Abschnitte in der Zeitleiste,
+auch im Vollbild. In den Einstellungen kannst du das automatische Überspringen
+einschalten. Jeder Block wird pro Wiedergabe einmal übersprungen. Wenn du
+zurückspulst, kannst du ihn ansehen. Die Aufnahmedatei bleibt unverändert.
+
+TVHeadend liest Comskip-Dateien (`.txt`) und EDL-Dateien (`.edl`) neben der Aufnahme.
+Tunerfenster lädt diese Markierungen über HTSP mit deinen vorhandenen Zugangsdaten.
+HTSP verwendet normalerweise Port 9982 auf dem TVHeadend-Server. Server und Port
+lassen sich unter **Einstellungen → Werbemarkierungen** ändern. Comskip muss bereits
+auf dem Server eingerichtet sein. Die Markierungen werden beim Auswählen einer
+Aufnahme geprüft. Fehlende Markierungen oder ein HTSP-Fehler verhindern die
+Wiedergabe nicht.
 
 Ziehe die Trennlinie neben dem Player, um die Liste breiter oder schmaler zu
 machen. Die Trennlinie über den Sendungsinfos gibt dem Text mehr Platz und
@@ -221,10 +251,19 @@ Intel-Version unter Rosetta läuft.
 
 Über **Tunerfenster → Nach Updates suchen …** prüfst du manuell. Die
 automatische Prüfung lässt sich in den Einstellungen oder im Fenster
-Softwareupdates abschalten. Zum Installieren lädst du die DMG im Browser,
-beendest Tunerfenster und ersetzt die App. Deine Einstellungen bleiben
-erhalten. Die Prüfung sendet keine TVHeadend-Adresse, Zugangsdaten oder
-Tunerdaten an GitHub.
+Softwareupdates abschalten.
+
+Bei Releases mit signiertem Update-Feed öffnet **Update installieren …** die
+Installation. Sparkle lädt und prüft das Update. Wenn du bestätigst, ersetzt
+es die App und startet sie neu. Deine Einstellungen bleiben erhalten. Die
+bisher veröffentlichten Versionen bis 2.0 brauchen einmal ein manuelles Update,
+um diese Installation zu bekommen. Releases ohne signierten Feed bieten weiter
+die DMG an: im Browser laden, Tunerfenster beenden und die App ersetzen.
+
+Die Versionszeile zeigt die Architektur der laufenden App. Läuft eine
+Intel-Version über Rosetta, erklärt das Fenster, dass das Update die native
+Version für Apple Silicon installiert. Die Update-Prüfung sendet keine
+TVHeadend-Adresse, Zugangsdaten oder Tunerdaten an GitHub.
 
 ## Arbeitsweise
 
@@ -293,3 +332,6 @@ oder neuer. Die App enthält den Lizenztext, Quellcode-Verweise und eine Anleitu
 zum Austausch des Frameworks. Siehe [Drittanbieter-Hinweise](Resources/ThirdPartyNotices.txt).
 Tunerfenster lädt das Framework dynamisch. Für den lokalen Einsatz kannst du es
 durch eine kompatible, geänderte Version ersetzen.
+
+Sparkle übernimmt Updates in der App. Seine Lizenz und die enthaltenen
+Drittanbieter-Hinweise liegen als Sparkle-LICENSE.txt in der App bei.

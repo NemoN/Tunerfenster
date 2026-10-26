@@ -62,6 +62,11 @@ struct TunerUsage: Identifiable {
     let subscriptions: [Subscription]
     var id: String { tuner.id }
     var unassignedCount: Int { max(0, (tuner.input.subs ?? 0) - subscriptions.count) }
+    var isRecording: Bool { subscriptions.contains { $0.usageKind == .recording } }
+
+    static func recordingInputIDs(tuners: [Tuner], subscriptions: [Subscription]) -> Set<String> {
+        Set(overview(tuners: tuners, subscriptions: subscriptions).filter(\.isRecording).map(\.id))
+    }
 
     static func overview(tuners: [Tuner], subscriptions: [Subscription]) -> [TunerUsage] {
         var grouped = [String: [Subscription]]()

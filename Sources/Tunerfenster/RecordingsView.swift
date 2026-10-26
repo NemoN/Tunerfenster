@@ -3,6 +3,7 @@ import SwiftUI
 struct RecordingsView: View {
     @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var library: RecordingLibrary
+    @ObservedObject var monitor: Monitor
     @AppStorage(RecordingSort.preferenceKey) private var sort = RecordingSort.dateNewest
     @State private var search = ""
     @State private var expandedFolders = RecordingListPreferences().expandedFolders
@@ -28,10 +29,16 @@ struct RecordingsView: View {
                     .textFieldStyle(.roundedBorder).padding(.horizontal, 12)
                 if let error = library.error {
                     VStack(alignment: .leading, spacing: 8) {
-                        Label(error.localizedDescription, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(ThemeColors.warning).font(.callout)
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle").foregroundStyle(ThemeColors.warning)
+                            Text(error.localizedDescription).fixedSize(horizontal: false, vertical: true)
+                        }.font(.callout)
                         Button(L10n.text("retryRecordings")) { Task { await library.refresh() } }.disabled(library.loading)
-                    }.padding(.horizontal, 12)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color(nsColor: .systemYellow).opacity(0.14))
+                    .padding(.horizontal, 12)
                 }
                 if let error = library.deletionError {
                     HStack(alignment: .top, spacing: 8) {
@@ -92,7 +99,7 @@ struct RecordingsView: View {
             .frame(minWidth: 280, idealWidth: 620, maxWidth: .infinity)
             .recordingPanel()
         } second: {
-            RecordingPlayerView(library: library, playback: library.playback)
+            RecordingPlayerView(library: library, playback: library.playback, monitor: monitor)
                 .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: selectedFolders, initial: true) { _, ids in expandedFolders.formUnion(ids) }
@@ -288,9 +295,12 @@ private struct RecordingFolderGroup<Row: View>: View {
 }
 
 private struct RecordingPlayerView: View {
+    @EnvironmentObject private var playbackWindow: PlaybackWindow
     @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var library: RecordingLibrary
     @ObservedObject var playback: Playback
+    @ObservedObject var monitor: Monitor
+    @State private var channelLogo: (key: String, image: NSImage)?
     private var needsStart: Bool { !library.playbackRequested }
     private var needsReplay: Bool { playback.ended || playback.failed || library.playbackError != nil }
     private var playerMessage: String {
@@ -303,7 +313,7 @@ private struct RecordingPlayerView: View {
     var body: some View {
         Group {
             if let item = library.selected {
-                if item.subtitleText != nil || item.detail != nil {
+                if item.subtitleText != nil || item.detail != nil || monitor.recordingChannel(for: item)?.icon_public_url?.isEmpty == false {
                     RecordingSplitView(name: "TunerfensterRecordingDetailsV1", isVertical: false, minimumFirst: 220, minimumSecond: 70, initialFraction: 0.72) {
                         playbackPanel(item)
                             .frame(minHeight: 220, idealHeight: 540, maxHeight: .infinity)
@@ -353,7 +363,7 @@ private struct RecordingPlayerView: View {
                         Label(L10n.text("recordingStartPlayback"), systemImage: "play.fill")
                     }.controlSize(.large).accessibilityIdentifier("startSelectedRecording")
                 } else {
-                    VideoSurface(playback: playback, cornerRadius: 8)
+                    VideoSurface(playback: playback, cornerRadius: 8, onDoubleClick: playbackWindow.toggleFullScreen)
                         .opacity(playback.hasVideo ? 1 : 0)
                     if library.opening || !playback.hasVideo || needsReplay {
                         VStack(spacing: 8) {
@@ -379,16 +389,41 @@ private struct RecordingPlayerView: View {
     }
 
     private func programmeDetails(_ item: SavedRecording) -> some View {
-        ScrollView {
+        let channel = monitor.recordingChannel(for: item)
+        let key = [monitor.connection.baseURL?.absoluteString ?? "", monitor.connection.username,
+                   channel?.uuid ?? "", channel?.icon_public_url ?? "", String(monitor.channelIconRevision),
+                   monitor.connected ? "online" : "offline"].joined(separator: "\n")
+        return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(L10n.text("recordingProgrammeDetails"))
                     .font(.subheadline.weight(.semibold)).foregroundStyle(ThemeColors.detailSecondary)
-                if let subtitle = item.subtitleText { Text(subtitle).font(.headline).textSelection(.enabled) }
-                if let detail = item.detail { Text(detail).font(.callout).lineSpacing(3).textSelection(.enabled) }
-            }.frame(maxWidth: 760, alignment: .leading).padding(18)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                if item.subtitleText != nil || channelLogo?.key == key {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text(item.subtitleText ?? item.name).font(.headline).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 760, alignment: .leading)
+                        Spacer(minLength: 0)
+                        if let channelLogo, channelLogo.key == key {
+                            Image(nsImage: channelLogo.image).resizable().scaledToFit()
+                                .frame(width: 84, height: 34)
+                                .accessibilityLabel(L10n.text("channelLogo", channel?.name ?? item.channelname ?? ""))
+                        }
+                    }
+                }
+                if let detail = item.detail {
+                    Text(detail).font(.callout).lineSpacing(3).textSelection(.enabled)
+                        .frame(maxWidth: 760, alignment: .leading)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                .background(AutomaticScrollIndicators())
         }
         .accessibilityLabel(L10n.text("recordingProgrammeDetails"))
+        .task(id: key) {
+            guard let channel else { channelLogo = nil; return }
+            let image = await monitor.channelIcon(for: channel)
+            guard !Task.isCancelled else { return }
+            channelLogo = image.map { (key, $0) }
+        }
     }
 }
 

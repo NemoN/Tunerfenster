@@ -14,6 +14,21 @@ test -f "$app_dir/Contents/MacOS/Tunerfenster"
 resource_bundle="$app_dir/Contents/Resources/Tunerfenster_Tunerfenster.bundle"
 framework="$app_dir/Contents/Frameworks/VLCKit.framework"
 test -f "$framework/VLCKit"
+sparkle="$app_dir/Contents/Frameworks/Sparkle.framework"
+test -f "$sparkle/Sparkle"
+# Sign Sparkle's executable helper, nested app and XPC services inside out.
+timestamp=--timestamp=none
+if [ "$mode" = release ]; then timestamp=--timestamp; fi
+for component in "$sparkle/Versions/B/Autoupdate" \
+    "$sparkle/Versions/B/Updater.app" \
+    "$sparkle/Versions/B/XPCServices/Installer.xpc" \
+    "$sparkle/Versions/B/XPCServices/Downloader.xpc" "$sparkle"; do
+    if [ "$identity" = - ]; then
+        codesign --force --preserve-metadata=identifier,entitlements --sign - "$component"
+    else
+        codesign --force --preserve-metadata=identifier,entitlements "$timestamp" --options runtime --sign "$identity" "$component"
+    fi
+done
 if [ "$identity" = "-" ]; then
     codesign --force --sign - "$framework"
     codesign --force --sign - "$resource_bundle"

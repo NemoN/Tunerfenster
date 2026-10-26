@@ -26,6 +26,8 @@ struct RecordingEntry: Decodable, Sendable {
     let channel: String?
     let broadcast: Int?
     let sched_status: String?
+    var create: TimeInterval? = nil
+    var start_real: TimeInterval? = nil
     var isRunning: Bool { ["recording", "recordingError"].contains(sched_status ?? "") }
     var isFinished: Bool { ["completed", "completedError", "completedWarning", "completedRerecord"].contains(sched_status ?? "") }
 
@@ -123,17 +125,17 @@ final class Recorder: ObservableObject {
         guard let api, !checking, force || now().timeIntervalSince(lastCheck) >= 30 else { return }
         checking = true
         let token = generation
+        defer { if token == generation { checking = false } }
         do {
             let profiles = try await api.recordingProfiles()
-            guard token == generation else { return }
+            guard token == generation, !Task.isCancelled else { return }
             self.profiles = profiles.filter(\.usable).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             availabilityError = self.profiles.isEmpty ? .message("recordingNotConfigured") : nil
         } catch {
-            guard token == generation else { return }
+            guard token == generation, !Task.isCancelled else { return }
             profiles = []
             availabilityError = .context("recordingUnavailable", .wrapping(error))
         }
-        checking = false
         lastCheck = now()
     }
 
@@ -170,6 +172,28 @@ final class Recorder: ObservableObject {
 
     func canStop(_ event: Programme) -> Bool {
         api != nil && isRecording(event) && !pending.contains(Self.key(event))
+    }
+
+    func startedAt(for event: Programme, subscriptions: [Subscription], channelName: String?) -> Date? {
+        guard isRecording(event) else { return nil }
+        let current = recording(for: event)
+        let entry = entries[Self.key(event)].flatMap { $0.uuid == current.dvrUuid ? $0 : nil }
+        let created = entry?.create.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let title = event.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A DVR subscription's timestamp survives app relaunches. Match both
+        // channel and programme, and exclude a previous stopped recording.
+        let matches = subscriptions.filter {
+            guard $0.usageKind == .recording, let channelName, $0.channel == channelName,
+                  let title, !title.isEmpty, $0.usageDetail == title,
+                  let start = $0.start, start.isFinite, start > 0 else { return false }
+            return created.map { start >= $0 - 1 } ?? true
+        }
+        if matches.count == 1, let start = matches.first?.start { return Date(timeIntervalSince1970: start) }
+        // On servers without subscription details, include padding and account
+        // for a recorder created after the programme's scheduled start.
+        let scheduled = entry?.start_real.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        guard let start = [created, scheduled].compactMap({ $0 }).max() else { return nil }
+        return Date(timeIntervalSince1970: start)
     }
 
     func forgetRecording(uuid: String) {
@@ -288,5 +312,16 @@ final class Recorder: ObservableObject {
             // A successful create remains submitted if its status read fails;
             // polling retries it instead of enabling a duplicate request.
         }
+    }
+}
+
+enum RecordingElapsed {
+    static func label(since start: Date?, at now: Date) -> String? {
+        guard let start else { return nil }
+        let elapsed = now.timeIntervalSince(start)
+        guard elapsed.isFinite, elapsed < Double(Int.max) else { return nil }
+        let seconds = Int(max(0, elapsed))
+        let hours = String(seconds / 3600)
+        return (hours.count < 2 ? "0" : "") + hours + String(format: ":%02d:%02d", seconds / 60 % 60, seconds % 60)
     }
 }

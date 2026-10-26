@@ -3,31 +3,34 @@ import SwiftUI
 @MainActor
 final class Monitor: ObservableObject {
     @Published var connection = Connection(address: "http://tvheadend.local:9981", username: "", password: "")
-    @Published var tuners = [Tuner]()
+    @Published var tuners = [Tuner]() { didSet { invalidateTunerPresentation() } }
     @Published var error: AppError?
     @Published var catalogWarning: AppError?
-    @Published var connected = false
-    @Published var paused = false
+    @Published var connected = false { didSet { invalidateTunerPresentation() } }
+    @Published var paused = false { didSet { invalidateTunerPresentation() } }
     @Published var loading = true
     @Published var lastUpdate: Date?
     @Published private(set) var pollingSeconds: Int
     @Published var audioID: String?
-    @Published private(set) var viewingMode: ViewingMode = .mosaic
-    @Published private(set) var focusedID: String?
+    @Published private(set) var viewingMode: ViewingMode = .mosaic { didSet { invalidateTunerPresentation() } }
+    @Published private(set) var focusedID: String? { didSet { invalidateTunerPresentation() } }
     @Published private(set) var programme: ProgrammeSchedule?
     @Published private(set) var programmeError: AppError?
     @Published private(set) var programmeLoading = false
     @Published private(set) var channelIconRevision = 0
     @Published var selected = [String: Int]()
-    @Published private(set) var manual = [String: StreamChoice]()
-    @Published private(set) var savedManual = [String: String]()
+    @Published private(set) var manual = [String: StreamChoice]() { didSet { invalidateTunerPresentation() } }
+    @Published private(set) var savedManual = [String: String]() { didSet { invalidateTunerPresentation() } }
     @Published private(set) var choices = [StreamChoice]()
     @Published private(set) var receptionWarning: AppError?
     @Published private(set) var tunerAllocation: TunerAllocation?
     let recorder = Recorder()
     let recordings = RecordingLibrary()
     private var multiplexes = [Multiplex]()
-    private var subscriptions = [Subscription]()
+    private var subscriptions = [Subscription]() { didSet { invalidateTunerPresentation() } }
+    private var previewsSuspended = false
+    private var cachedTunerPresentation: TunerPresentation?
+    private var cachedTunerUsage: [TunerUsage]?
     private var players = [String: Playback]()
     private var api: API?
     private var polling: Task<Void, Never>?
@@ -60,11 +63,26 @@ final class Monitor: ObservableObject {
     }
 
     var liveCount: Int { playbackTuners.filter { preview(for: $0) != nil }.count }
+    var streamPlayers: [Playback] { Array(players.values) + [recordings.playback] }
     var busyTunerCount: Int { tuners.filter { ($0.input.subs ?? 0) > 0 }.count }
-    var tunerUsage: [TunerUsage] { TunerUsage.overview(tuners: tuners, subscriptions: subscriptions) }
+    var tunerUsage: [TunerUsage] {
+        if let cachedTunerUsage { return cachedTunerUsage }
+        let result = TunerUsage.overview(tuners: tuners, subscriptions: subscriptions)
+        cachedTunerUsage = result
+        return result
+    }
+    var recordingInputIDs: Set<String> {
+        guard connected, !paused else { return [] }
+        return Set(tunerUsage.filter(\.isRecording).map(\.id))
+    }
+    func recordingStartedAt(for event: Programme) -> Date? {
+        recorder.startedAt(for: event, subscriptions: subscriptions,
+                           channelName: channels.first { $0.uuid == event.channelUuid }?.name)
+    }
     var epgCount: Int { tuners.filter { headerTuner(for: $0).hasEPG && preview(for: $0) == nil }.count }
 
     var playbackTuners: [Tuner] {
+        if previewsSuspended { return [] }
         switch viewingMode {
         case .mosaic: return tuners
         case .tv: return tuners.filter { $0.id == focusedID }
@@ -161,10 +179,22 @@ final class Monitor: ObservableObject {
         Task { await reconcile() }
     }
 
+    func suspendPreviews(_ suspended: Bool) {
+        guard previewsSuspended != suspended else { return }
+        previewsSuspended = suspended
+        invalidateTunerPresentation()
+        requestReconciliation()
+    }
+
     func preview(for tuner: Tuner) -> Preview? {
         if let choice = manual[tuner.id] { return choice.preview }
         if savedManual[tuner.id] != nil { return nil }
-        return tuner.previews.first { $0.id == selected[tuner.id] } ?? tuner.previews.first
+        let following = followingPreviews(for: tuner)
+        return following.first { $0.id == selected[tuner.id] } ?? following.first
+    }
+
+    func followingPreviews(for tuner: Tuner) -> [Preview] {
+        tunerPresentation.following[tuner.id] ?? tuner.previews
     }
 
     func currentChoice(for tuner: Tuner) -> StreamChoice? {
@@ -277,6 +307,10 @@ final class Monitor: ObservableObject {
         return ProgrammeSchedule.channel(for: preview, channels: channels)
     }
 
+    func recordingChannel(for recording: SavedRecording) -> Channel? {
+        RecordingChannel.resolve(recording, channels: channels)
+    }
+
     func channelIcon(for channel: Channel) async -> NSImage? {
         guard connected, let api, let url = api.channelIconURL(for: channel) else { return nil }
         if let cached = channelIcons.object(forKey: url as NSURL) { return cached }
@@ -328,26 +362,39 @@ final class Monitor: ObservableObject {
         Snapshot.multiplex(for: tuner.input, multiplexes: multiplexes)
     }
 
-    private var tunerHeaderIDs: [String: String] {
-        guard connected, !paused else { return [:] }
+    private var tunerPresentation: TunerPresentation {
+        if let cachedTunerPresentation { return cachedTunerPresentation }
+        guard connected, !paused else {
+            let result = TunerPresentation(headers: [:], following: Dictionary(tuners.map { ($0.id, $0.previews) }, uniquingKeysWith: { first, _ in first }))
+            cachedTunerPresentation = result
+            return result
+        }
         let inputs = tuners.map(\.input)
         var sources = [String: [String]]()
+        var paths = [String: String]()
         // Saved choices that are stopped in TV mode must not prevent the
         // playing tile from showing its actual reception source.
         for tuner in playbackTuners {
             if let choice = manual[tuner.id] {
                 sources[tuner.id] = Snapshot.sources(for: choice.service, inputs: inputs, subscriptions: subscriptions).map(\.id)
+                paths[tuner.id] = choice.preview.path
             } else if savedManual[tuner.id] != nil {
                 sources[tuner.id] = []
-            } else if preview(for: tuner) != nil || tuner.unresolvedTV {
-                sources[tuner.id] = [tuner.id]
             }
         }
-        return TunerHeaders.resolve(ids: tuners.map(\.id), sources: sources)
+        let result = TunerHeaders.presentation(tuners: tuners, manualSources: sources, manualPaths: paths,
+                                               activeIDs: Set(playbackTuners.map(\.id)))
+        cachedTunerPresentation = result
+        return result
+    }
+
+    private func invalidateTunerPresentation() {
+        cachedTunerPresentation = nil
+        cachedTunerUsage = nil
     }
 
     func headerTuner(for tuner: Tuner) -> Tuner {
-        let id = tunerHeaderIDs[tuner.id] ?? tuner.id
+        let id = tunerPresentation.headers[tuner.id] ?? tuner.id
         return tuners.first { $0.id == id } ?? tuner
     }
 
@@ -374,15 +421,16 @@ final class Monitor: ObservableObject {
         return player
     }
 
-    func start() {
+    func start(initialConnection: Connection? = nil, forceMosaic: Bool = false,
+               onInitial: ((Connection) -> Void)? = nil) {
         guard polling == nil else { return }
         polling = Task { [weak self] in
             // Reading a file in Documents can wait for macOS file-access consent.
             // Let the window appear first and keep that wait off AppKit's thread.
-            let initial = await Task.detached(priority: .userInitiated) { Connection.initial() }.value
+            let initial = await Task.detached(priority: .userInitiated) { initialConnection ?? Connection.initial() }.value
             guard !Task.isCancelled, let self else { return }
             self.connection = initial
-            if ProcessInfo.processInfo.arguments.contains("--import-connection-stdin") {
+            if initialConnection == nil && ProcessInfo.processInfo.arguments.contains("--import-connection-stdin") {
                 do { try initial.save() }
                 catch {
                     self.error = .wrapping(error); self.loading = false; self.polling = nil
@@ -390,10 +438,12 @@ final class Monitor: ObservableObject {
                 }
             }
             self.loadSelections(for: initial)
+            if forceMosaic { self.setViewingMode(.mosaic) }
             self.api = API(connection: initial)
             self.recorder.configure(self.api)
             self.recordings.configure(self.api)
             self.recordings.setActive(self.viewingMode == .recordings)
+            onInitial?(initial)
             while !Task.isCancelled {
                 if !self.paused { await self.refresh() }
                 guard !Task.isCancelled else { return }
@@ -423,8 +473,10 @@ final class Monitor: ObservableObject {
         focusedID = nil
     }
 
-    func apply(_ connection: Connection) throws {
-        try connection.save()
+    func apply(_ connection: Connection, asCurrent: Bool = true) throws {
+        guard connection.baseURL != nil else { throw AppError.message("invalidAddressInput") }
+        if asCurrent { try connection.save() }
+        else { try Keychain.save(password: connection.password, account: connection.address + "|" + connection.username) }
         shutdown()
         self.connection = connection
         services = []; channels = []; tuners = []; players = [:]; tickets = [:]
@@ -433,7 +485,7 @@ final class Monitor: ObservableObject {
         catalogDate = .distantPast
         selectionScope = nil; pendingViewingInteraction = false
         error = nil; connected = false; loading = true; refreshing = false; paused = false
-        start()
+        start(initialConnection: connection, forceMosaic: !asCurrent)
     }
 
     func togglePause() {

@@ -64,13 +64,18 @@ struct UpdateView: View {
     @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var updater: UpdateChecker
     @State private var openingFailed = false
+    @ObservedObject private var installer = UpdateInstaller.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Tunerfenster").font(.title2.weight(.semibold))
-                Text(L10n.text("updateInstalled", updater.currentVersion, updater.architecture.title))
+                Text(L10n.text("updateInstalled", updater.currentVersion, UpdateArchitecture.running.title))
                     .foregroundStyle(.secondary).font(.callout)
+                if UpdateArchitecture.running != updater.architecture {
+                    Text(L10n.text("updateRosettaNote")).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if updater.isChecking {
                 HStack(spacing: 10) {
@@ -82,10 +87,18 @@ struct UpdateView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(L10n.text("updateAvailable", update.version.description)).font(.title3.weight(.semibold))
                     if let download = update.downloadURL {
-                        Text(L10n.text("updateInstallNote")).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        let canInstall = UpdateInstaller.supports(update)
+                        Text(L10n.text(canInstall ? "updateAutomaticInstallNote" : "updateInstallNote"))
+                            .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 12) {
-                            Button(L10n.text("downloadUpdate", update.architecture == .appleSilicon ? "Apple Silicon" : "Intel")) { open(download) }
-                                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                            if canInstall {
+                                Button(L10n.text(installer.isBusy ? "updateInstalling" : "installUpdate")) { installer.install(update) }
+                                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                                    .disabled(installer.isBusy)
+                            } else {
+                                Button(L10n.text("downloadUpdate", update.architecture == .appleSilicon ? "Apple Silicon" : "Intel")) { open(download) }
+                                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                            }
                             Button(L10n.text("updateReleaseNotes")) { open(update.releaseURL) }
                         }
                     } else {
@@ -113,6 +126,9 @@ struct UpdateView: View {
             if openingFailed {
                 Text(L10n.text("updateOpenFailed")).foregroundStyle(ThemeColors.warning).fixedSize(horizontal: false, vertical: true)
             }
+            if let failure = installer.failure {
+                Text(failure).foregroundStyle(ThemeColors.warning).fixedSize(horizontal: false, vertical: true)
+            }
             Divider()
             UpdatePreference(updater: updater)
             HStack(alignment: .center, spacing: 12) {
@@ -124,7 +140,7 @@ struct UpdateView: View {
                 Button(L10n.text("checkForUpdates")) {
                     openingFailed = false
                     Task { await updater.check() }
-                }.disabled(updater.isChecking)
+                }.disabled(updater.isChecking || installer.isBusy)
             }
         }
         .padding(26).frame(width: 520, alignment: .leading)

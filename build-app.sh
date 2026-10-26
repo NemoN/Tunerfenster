@@ -30,19 +30,24 @@ for language in en de; do
     ditto "Sources/Tunerfenster/Resources/$language.lproj" "$staged_app/Contents/Resources/$language.lproj"
 done
 if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$staged_app/Contents/Resources/AppIcon.icns"; fi
-python3 - "$staged_app" "$bootstrap_env" <<'PY'
+python3 - "$staged_app" "$bootstrap_env" "$architecture" <<'PY'
 import pathlib, plistlib, sys
 app = pathlib.Path(sys.argv[1])
 info = {
     'CFBundleName': 'Tunerfenster', 'CFBundleDisplayName': 'Tunerfenster',
     'CFBundleIdentifier': 'de.local.Tunerfenster', 'CFBundleExecutable': 'Tunerfenster',
-    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.0',
+    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.1',
     'CFBundleDevelopmentRegion': 'en', 'CFBundleLocalizations': ['en', 'de'],
     'CFBundleIconFile': 'AppIcon',
-    'CFBundleVersion': '13', 'LSMinimumSystemVersion': '14.0',
+    'CFBundleVersion': '14', 'LSMinimumSystemVersion': '14.0',
     'NSPrincipalClass': 'NSApplication', 'NSHighResolutionCapable': True,
     'NSLocalNetworkUsageDescription': 'Tunerfenster liest den Status deines TVHeadend-Servers und zeigt laufende TV-Streams im lokalen Netzwerk.',
     'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
+    'SUFeedURL': f'https://github.com/NemoN/Tunerfenster/releases/latest/download/appcast-{sys.argv[3]}.xml',
+    'SUPublicEDKey': pathlib.Path('Resources/SparklePublicKey.txt').read_text().strip(),
+    'SUEnableAutomaticChecks': False, 'SUAllowsAutomaticUpdates': False,
+    'SUVerifyUpdateBeforeExtraction': True, 'SURequireSignedFeed': True,
+    'SUEnableSystemProfiling': False,
 }
 with (app / 'Contents/Info.plist').open('wb') as f:
     plistlib.dump(info, f)
@@ -52,6 +57,7 @@ if sys.argv[2]:
         plistlib.dump({'EnvironmentFile': str(pathlib.Path(sys.argv[2]).resolve())}, f)
 PY
 ./scripts/bundle-vlc.sh "$staged_app" "$architecture"
+./scripts/bundle-sparkle.py "$staged_app" "$architecture" "$PWD/.build/$architecture/artifacts/sparkle/Sparkle"
 ./sign-app.sh "$staged_app"
 # Replace only the generated output after the complete new bundle has passed signing.
 rm -rf "$app_dir"

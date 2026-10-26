@@ -10,13 +10,14 @@ final class PlaybackWindow: ObservableObject {
     private var notifications = [NSObjectProtocol]()
     private var keyMonitor: Any?
     private var mouseMonitor: Any?
-    weak var videoView: NSView?
-    weak var controlsView: NSView?
     private var acceptedMouseMovement = false
     private var transitioning = false
     private var openPanels = 0
     private var trackingMenus = 0
+    private var windowAppearance: (color: NSColor, opaque: Bool, transparentTitle: Bool, title: NSWindow.TitleVisibility)?
+    private var videoFullScreen: (frame: NSRect, style: NSWindow.StyleMask, shadow: Bool, presentation: NSApplication.PresentationOptions)?
     var focused = false
+    var videoAvailable = false
     var blocked = false
     var leaveZoom: () -> Void = {}
     var switchChannel: (Int) -> Void = { _ in }
@@ -35,6 +36,12 @@ final class PlaybackWindow: ObservableObject {
         fullScreen = window.styleMask.contains(.fullScreen)
         controls.setActive(fullScreen)
         let center = NotificationCenter.default
+        notifications.append(center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restoreVideoFullScreen() }
+        })
+        notifications.append(center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restoreVideoFullScreen() }
+        })
         notifications.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.trackingMenus += 1 }
         })
@@ -42,8 +49,16 @@ final class PlaybackWindow: ObservableObject {
             MainActor.assumeIsolated { if let self { self.trackingMenus = max(0, self.trackingMenus - 1) } }
         })
         for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
-            notifications.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.transitioning = true }
+            notifications.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    self?.transitioning = true
+                    let entering = notification.name == NSWindow.willEnterFullScreenNotification
+                    if entering { self?.prepareFullScreenAppearance() }
+                    // Settle the toolbar and video hierarchy before AppKit animates
+                    // the window, avoiding a second replacement after the transition.
+                    self?.fullScreen = entering
+                    self?.controls.setActive(entering)
+                }
             })
         }
         for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
@@ -52,6 +67,7 @@ final class PlaybackWindow: ObservableObject {
                     self?.transitioning = false
                     self?.fullScreen = window?.styleMask.contains(.fullScreen) == true
                     self?.controls.setActive(self?.fullScreen == true)
+                    if self?.fullScreen == false { self?.restoreWindowAppearance() }
                 }
             })
         }
@@ -61,7 +77,7 @@ final class PlaybackWindow: ObservableObject {
                 return self.handle(event)
             }
         }
-        // VLC's embedded child views receive mouse events before SwiftUI gestures.
+        // Pointer activity also arrives from VLC's embedded child views.
         mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .mouseMoved, .leftMouseDragged, .rightMouseDragged, .scrollWheel]) { [weak self] event in
             MainActor.assumeIsolated {
                 guard let self else { return event }
@@ -71,6 +87,7 @@ final class PlaybackWindow: ObservableObject {
     }
 
     func detach() {
+        restoreVideoFullScreen()
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
@@ -80,13 +97,62 @@ final class PlaybackWindow: ObservableObject {
         trackingMenus = 0
         window?.acceptsMouseMovedEvents = acceptedMouseMovement
         controls.setActive(false)
+        restoreWindowAppearance()
         window = nil
+    }
+
+    private func prepareFullScreenAppearance() {
+        guard let window, windowAppearance == nil else { return }
+        windowAppearance = (window.backgroundColor, window.isOpaque, window.titlebarAppearsTransparent, window.titleVisibility)
+        window.backgroundColor = .black
+        window.isOpaque = true
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+    }
+
+    private func restoreWindowAppearance() {
+        guard let window, let appearance = windowAppearance else { return }
+        window.backgroundColor = appearance.color
+        window.isOpaque = appearance.opaque
+        window.titlebarAppearsTransparent = appearance.transparentTitle
+        window.titleVisibility = appearance.title
+        windowAppearance = nil
     }
 
     func toggleFullScreen() {
         guard let window, !transitioning, window.attachedSheet == nil,
               !blocked, openPanels == 0, trackingMenus == 0 else { return }
+        if videoFullScreen != nil {
+            restoreVideoFullScreen()
+            return
+        }
+        // Keep the video in the same window during channel changes. Moving the
+        // embedded drawable into a native fullscreen Space can leave a stale edge.
+        if videoAvailable, !window.styleMask.contains(.fullScreen), let screen = window.screen {
+            videoFullScreen = (window.frame, window.styleMask, window.hasShadow, NSApp.presentationOptions)
+            prepareFullScreenAppearance()
+            fullScreen = true
+            controls.setActive(true)
+            NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
+            window.styleMask = [.borderless, .resizable]
+            window.hasShadow = false
+            window.setFrame(screen.frame, display: true)
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
         window.toggleFullScreen(nil)
+    }
+
+    private func restoreVideoFullScreen() {
+        guard let window, let previous = videoFullScreen else { return }
+        videoFullScreen = nil
+        fullScreen = false
+        controls.setActive(false)
+        NSApp.presentationOptions = previous.presentation
+        window.styleMask = previous.style
+        window.hasShadow = previous.shadow
+        window.setFrame(previous.frame, display: true)
+        restoreWindowAppearance()
     }
 
     private func handlePointer(_ event: NSEvent) -> NSEvent? {
@@ -94,16 +160,7 @@ final class PlaybackWindow: ObservableObject {
         if fullScreen, !blocked, openPanels == 0, trackingMenus == 0 {
             controls.activity(pointerMoved: true)
         }
-        guard event.type == .leftMouseDown || event.type == .leftMouseUp else { return event }
-        if let controlsView, controlsView.window === window, !controlsView.isHiddenOrHasHiddenAncestor,
-           controlsView.visibleRect.contains(controlsView.convert(event.locationInWindow, from: nil)) { return event }
-        guard event.clickCount == 2,
-              window.attachedSheet == nil, !blocked, openPanels == 0, trackingMenus == 0,
-              event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-              let videoView, videoView.window === window, !videoView.isHiddenOrHasHiddenAncestor,
-              videoView.visibleRect.contains(videoView.convert(event.locationInWindow, from: nil)) else { return event }
-        if event.type == .leftMouseDown { toggleFullScreen() }
-        return nil
+        return event
     }
 
     private func handle(_ event: NSEvent) -> NSEvent? {
@@ -154,11 +211,11 @@ extension View {
 struct PlaybackWindowBridge: NSViewRepresentable {
     let controller: PlaybackWindow
     let focused: Bool
+    let videoAvailable: Bool
     let blocked: Bool
     let leaveZoom: () -> Void
     let switchChannel: (Int) -> Void
     let toggleMute: () -> Void
-    let videoView: NSView?
 
     final class WindowProbe: NSView {
         weak var controller: PlaybackWindow?
@@ -177,11 +234,11 @@ struct PlaybackWindowBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: WindowProbe, context: Context) {
         controller.focused = focused
+        controller.videoAvailable = videoAvailable
         controller.blocked = blocked
         controller.leaveZoom = leaveZoom
         controller.switchChannel = switchChannel
         controller.toggleMute = toggleMute
-        controller.videoView = videoView
     }
 
     static func dismantleNSView(_ nsView: WindowProbe, coordinator: ()) { nsView.controller?.detach() }

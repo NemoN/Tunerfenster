@@ -36,6 +36,11 @@ final class UpdateSelectionTests: XCTestCase {
         XCTAssertEqual(UpdateArchitecture.resolve(nativeARM: true, translated: false), .appleSilicon)
         XCTAssertEqual(UpdateArchitecture.resolve(nativeARM: false, translated: true), .appleSilicon)
         XCTAssertEqual(UpdateArchitecture.resolve(nativeARM: false, translated: false), .intel)
+        #if arch(arm64)
+        XCTAssertEqual(UpdateArchitecture.running, .appleSilicon)
+        #else
+        XCTAssertEqual(UpdateArchitecture.running, .intel)
+        #endif
         for architecture in UpdateArchitecture.all {
             guard case .available(let update) = try fixtureRelease().evaluate(currentVersion: XCTUnwrap(AppVersion("1.7.1")), architecture: architecture) else {
                 return XCTFail("Expected update")
@@ -83,6 +88,32 @@ final class UpdateSelectionTests: XCTestCase {
         }
     }
 
+    func testInstallationRequiresTheUniqueFeedAndInstallerForTheCorrectCPUAndRelease() throws {
+        for architecture in UpdateArchitecture.all {
+            let base = fixtureRelease("v2.1")
+            let name = "appcast-\(architecture.rawValue).xml"
+            let url = "https://github.com/NemoN/Tunerfenster/releases/download/v2.1/\(name)"
+            let feed = GitHubRelease.Asset(name: name, browserDownloadURL: url, state: "uploaded", size: 800)
+            let candidates: [(assets: [GitHubRelease.Asset], supported: Bool)] = [
+                (base.assets + [feed], true),
+                (base.assets, false),
+                (base.assets + [feed, feed], false),
+                ([feed], false),
+                (base.assets + [.init(name: name, browserDownloadURL: url.replacingOccurrences(of: "v2.1/", with: "v2.0/"), state: "uploaded", size: 800)], false),
+                (base.assets + [.init(name: name, browserDownloadURL: url.replacingOccurrences(of: "NemoN/", with: "someone/"), state: "uploaded", size: 800)], false),
+                (base.assets + [.init(name: name, browserDownloadURL: url, state: "new", size: 800)], false),
+                (base.assets + [.init(name: name, browserDownloadURL: url, state: "uploaded", size: 0)], false)
+            ]
+            for candidate in candidates {
+                guard case .available(let update) = try fixtureRelease("v2.1", assets: candidate.assets).evaluate(
+                    currentVersion: XCTUnwrap(AppVersion("2.0")), architecture: architecture) else {
+                    return XCTFail("Expected update")
+                }
+                XCTAssertEqual(update.installationFeedURL?.absoluteString, candidate.supported ? url : nil)
+            }
+        }
+    }
+
     func testDraftPrereleaseAndInvalidTagsAreRejected() throws {
         for candidate in [fixtureRelease(draft: true), fixtureRelease(prerelease: true), fixtureRelease("v1.9.0-beta"), fixtureRelease("v1.9.0/../../elsewhere")] {
             XCTAssertThrowsError(try candidate.evaluate(currentVersion: XCTUnwrap(AppVersion("1.7.1")), architecture: .intel)) {
@@ -94,6 +125,32 @@ final class UpdateSelectionTests: XCTestCase {
 
 @MainActor
 final class UpdateCheckerTests: XCTestCase {
+    func testInstallerRequiresAnAppBundleWithThePinnedPublicKeyAndTrustedFeed() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let version = try XCTUnwrap(AppVersion("2.1"))
+        let release = URL(string: "https://github.com/NemoN/Tunerfenster/releases/tag/v2.1")!
+        let download = release.deletingLastPathComponent().appendingPathComponent("unused.dmg")
+        let feed = URL(string: "https://github.com/NemoN/Tunerfenster/releases/download/v2.1/appcast-arm64.xml")!
+        for (index, key) in [nil, "invalid", Data(repeating: 1, count: 32).base64EncodedString()].enumerated() {
+            let app = root.appendingPathComponent("Test\(index).app")
+            let contents = app.appendingPathComponent("Contents")
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            var info = ["CFBundleIdentifier": "test.updates.\(index)", "CFBundlePackageType": "APPL"]
+            info["SUPublicEDKey"] = key
+            let data = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            try data.write(to: contents.appendingPathComponent("Info.plist"))
+            let bundle = try XCTUnwrap(Bundle(url: app))
+            let update = AppUpdate(version: version, architecture: .appleSilicon, releaseURL: release,
+                                   downloadURL: download, installationFeedURL: feed)
+            XCTAssertEqual(UpdateInstaller.supports(update, bundle: bundle), index == 2)
+            let foreign = AppUpdate(version: version, architecture: .appleSilicon, releaseURL: release,
+                                    downloadURL: download, installationFeedURL: URL(string: "https://evil.example/appcast-arm64.xml"))
+            XCTAssertFalse(UpdateInstaller.supports(foreign, bundle: bundle))
+        }
+    }
+
     private func defaults() throws -> UserDefaults {
         let suite = "UpdateTests.\(UUID().uuidString)"
         addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }

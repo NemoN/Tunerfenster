@@ -42,7 +42,8 @@ struct ChannelChoiceList: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         coordinator.synchronizing = true
-        let revision = items.map { [$0.id, $0.name, details($0)].joined(separator: "\n") }.joined(separator: "\n") + "\n" + (currentID ?? "")
+        let revision = items.map { [$0.id, $0.name, details($0), $0.service.encrypted == true ? "encrypted" : ""].joined(separator: "\n") }
+            .joined(separator: "\n") + "\n" + (currentID ?? "") + "\n" + L10n.language.rawValue
         if coordinator.revision != revision {
             coordinator.revision = revision
             table.reloadData()
@@ -86,7 +87,12 @@ struct ChannelChoiceList: NSViewRepresentable {
             let item = parent.items[row]
             cell.name.stringValue = item.name
             cell.details.stringValue = parent.details(item)
-            cell.toolTip = [item.name, cell.details.stringValue].joined(separator: "\n")
+            let encrypted = item.service.encrypted == true
+            cell.encryption.isHidden = !encrypted
+            cell.encryption.toolTip = L10n.text("encryptedStream")
+            cell.encryption.setAccessibilityLabel(L10n.text("encryptedStream"))
+            cell.toolTip = [item.name, cell.details.stringValue, encrypted ? L10n.text("encryptedStream") : nil]
+                .compactMap { $0 }.joined(separator: "\n")
             cell.check.isHidden = item.id != parent.currentID
             return cell
         }
@@ -106,6 +112,13 @@ struct ChannelChoiceList: NSViewRepresentable {
         let name = NSTextField(labelWithString: "")
         let details = NSTextField(labelWithString: "")
         let check = NSImageView()
+        let encryption = NSImageView()
+
+        override var backgroundStyle: NSView.BackgroundStyle {
+            didSet {
+                encryption.contentTintColor = backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : .secondaryLabelColor
+            }
+        }
 
         init() {
             super.init(frame: .zero)
@@ -118,7 +131,20 @@ struct ChannelChoiceList: NSViewRepresentable {
             }
             check.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)
             check.contentTintColor = .controlAccentColor
-            let labels = NSStackView(views: [name, details])
+            encryption.image = NSImage(systemSymbolName: "key.horizontal.fill", accessibilityDescription: L10n.text("encryptedStream"))?
+                .withSymbolConfiguration(.init(pointSize: 11, weight: .regular))
+            encryption.contentTintColor = .secondaryLabelColor
+            encryption.setAccessibilityElement(true)
+            encryption.setContentCompressionResistancePriority(.required, for: .horizontal)
+            encryption.isHidden = true
+            name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            let title = NSStackView(views: [name, encryption])
+            title.orientation = .horizontal
+            title.alignment = .centerY
+            title.spacing = 6
+            title.detachesHiddenViews = true
+            title.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            let labels = NSStackView(views: [title, details])
             labels.orientation = .vertical
             labels.alignment = .leading
             labels.spacing = 3
@@ -130,6 +156,9 @@ struct ChannelChoiceList: NSViewRepresentable {
                 labels.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
                 labels.centerYAnchor.constraint(equalTo: centerYAnchor),
                 labels.trailingAnchor.constraint(equalTo: check.leadingAnchor, constant: -8),
+                title.widthAnchor.constraint(lessThanOrEqualTo: labels.widthAnchor),
+                details.widthAnchor.constraint(lessThanOrEqualTo: labels.widthAnchor),
+                encryption.widthAnchor.constraint(equalToConstant: 14), encryption.heightAnchor.constraint(equalToConstant: 12),
                 check.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
                 check.centerYAnchor.constraint(equalTo: centerYAnchor),
                 check.widthAnchor.constraint(equalToConstant: 16), check.heightAnchor.constraint(equalToConstant: 16)

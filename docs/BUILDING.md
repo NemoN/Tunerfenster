@@ -131,6 +131,8 @@ Outputs:
 ```text
 dist/release/Tunerfenster-<version>-arm64.dmg
 dist/release/Tunerfenster-<version>-x86_64.dmg
+dist/release/appcast-arm64.xml
+dist/release/appcast-x86_64.xml
 dist/release/<architecture>/Tunerfenster-<version>-<architecture>.zip
 ```
 
@@ -181,7 +183,46 @@ TVHeadend configuration. Automatic attempts run at least 24 hours apart, even
 after a failed check. You can retry manually at any time. On launch, the app
 compares locally cached release data with the installed version and the Mac's
 hardware. It detects Apple Silicon even from an Intel process under Rosetta.
-The user downloads and installs updates manually.
+From version 2.1, Sparkle can install updates in the app when a signed feed is available.
+Earlier versions use the manual DMG download.
 
 API and platform references: [GitHub Releases API](https://docs.github.com/en/rest/releases/releases)
 and [Apple's Rosetta translation detection](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment).
+
+## In-app installation / Installation in der App
+
+Sparkle 2.10.0 handles downloads, verification, replacement and relaunch.
+Package.resolved pins its Git revision; the package manifest contains the
+binary checksum. The build bundles and signs all helpers for the selected CPU. `--check-updater`
+validates the bundled framework configuration without contacting GitHub.
+
+The public Ed25519 key is in Resources/SparklePublicKey.txt and the app's
+SUPublicEDKey. The private key stays in Keychain under the account Tunerfenster.
+Keep this key for future releases. `release-all.sh` generates both appcasts only
+after the installers pass notarization. It verifies the archive signatures and
+signed XML. A missing or mismatched key stops feed generation.
+
+Upload appcast-arm64.xml and appcast-x86_64.xml to the same GitHub release as
+the two DMGs and checksums, before publishing it. The app enables installation
+only when both the correct DMG and feed are present. Older releases keep the
+browser download. To generate feeds separately after an authorized release
+build, run `./scripts/generate-update-feeds.sh`.
+
+Sparkle 2.10.0 übernimmt Download, Prüfung, Austausch und Neustart.
+Package.resolved hält die Git-Revision fest; die Paketbeschreibung enthält die
+Binär-Prüfsumme. Der Build bündelt und signiert alle Helfer für die gewählte CPU.
+`--check-updater` prüft
+die Konfiguration im App-Bundle, ohne GitHub zu kontaktieren.
+
+Der öffentliche Ed25519-Schlüssel steht in Resources/SparklePublicKey.txt und
+im SUPublicEDKey der App. Der private Schlüssel bleibt unter dem Konto
+Tunerfenster im Schlüsselbund. Diesen Schlüssel für kommende Releases behalten.
+`release-all.sh` erzeugt die Appcasts nach erfolgreicher Notarisierung und prüft
+Archivsignaturen sowie signierte XML-Dateien. Fehlt der Schlüssel oder passt
+er nicht zum öffentlichen Schlüssel, stoppt die Erzeugung der Feeds.
+
+appcast-arm64.xml und appcast-x86_64.xml vor der Veröffentlichung zusammen mit
+beiden DMGs und Prüfsummen ins gleiche GitHub-Release laden. Die App bietet die
+Installation nur an, wenn passende DMG und Feed vorhanden sind. Ältere Releases
+behalten den Browser-Download. Nach einem beauftragten Release-Build lassen sich
+die Feeds auch mit `./scripts/generate-update-feeds.sh` einzeln erzeugen.

@@ -84,7 +84,19 @@
 "noAuthentication" = "Ohne Anmeldung";
 "credentialsNote" = "Die App speichert die Verbindungseinstellungen auf diesem Mac und Passwörter im macOS-Schlüsselbund.";
 "cancel" = "Abbrechen";
-"connect" = "Verbinden";
+"connect" = "Speichern";
+"serverList" = "TVHeadend-Server";
+"serverName" = "Name";
+"newServer" = "Neuer Server";
+"addServer" = "Server hinzufügen";
+"removeServer" = "Server entfernen";
+"removeServerTitle" = "Server entfernen?";
+"removeServerMessage" = "Der Server wird aus Tunerfenster entfernt.";
+"duplicateServer" = "Dieser Server und Benutzer sind bereits hinterlegt.";
+"selectServerHelp" = "Aktiven Server für TV und Aufnahmen auswählen";
+"serversLoading" = "Die Server werden noch geladen.";
+"someServersOffline" = "Mindestens ein Server ist nicht verbunden.";
+"followAllServersHelp" = "Manuelle Senderwahl auf allen hinterlegten Servern zurücksetzen";
 "language" = "Sprache";
 "languageNote" = "Ändert die Sprache sofort und speichert sie für den nächsten Start.";
 "appearance" = "Darstellung";
@@ -113,6 +125,8 @@
 "recordingRequesting" = "Aufnahme wird angefordert …";
 "recordingRequested" = "Aufnahme angefordert";
 "recordingActive" = "Aufnahme läuft";
+"encryptedStream" = "Verschlüsselter Sender";
+"recordingElapsed" = "Aufnahmedauer";
 "recordingServerError" = "TVHeadend meldet einen Aufnahmefehler. Prüfe die Aufnahme dort im Videorekorder.";
 "recordingExists" = "Aufnahme bereits vorhanden";
 "recordingFailed" = "Die Aufnahme konnte nicht angefordert werden. %@";
@@ -142,6 +156,8 @@
 "epgScanCountMany" = "%@ EPG-Abfragen";
 "summary" = "%@ · %@ · %@ · %@";
 "updatedAt" = "Stand %@ ·";
+"streamThroughput" = "Netzwerk: %@ Mbit/s ·";
+"streamThroughputHelp" = "Empfangene Daten aller Streams in Tunerfenster, einschließlich Aufnahmen. Ohne Netzwerk-Overhead.";
 "pollingEvery" = "alle %@ s";
 "seconds" = "%@ s";
 "statusPollingInterval" = "TVHeadend-Abfrageintervall";
@@ -240,6 +256,8 @@
 "manualMode" = "Manuell";
 "tunerPending" = "Zuteilung durch TVHeadend läuft";
 "network" = "Netzwerk";
+"multiplex" = "Multiplex";
+"receptionSubscriptions" = "Nutzungen";
 "frequency" = "Frequenz";
 "polarisation" = "Polarisation";
 "band" = "Band";
@@ -332,6 +350,24 @@
 "resumeRecording" = "Wiedergabe fortsetzen";
 "replayRecording" = "Aufnahme erneut abspielen";
 "recordingPosition" = "Wiedergabeposition";
+"commercialSettings" = "Werbemarkierungen";
+"commercialLoading" = "Werbemarkierungen werden geladen …";
+"commercialUnavailable" = "Werbemarkierungen nicht verfügbar";
+"commercialReload" = "Werbemarkierungen neu laden";
+"commercialSkip" = "Werbung überspringen";
+"commercialSkipHelp" = "Zum Ende des aktuellen Werbeblocks springen.";
+"commercialAutomatic" = "Werbung automatisch überspringen";
+"commercialAutomaticHelp" = "Überspringt jeden markierten Werbeblock einmal pro Wiedergabe. Nach dem Zurückspulen kannst du ihn ansehen.";
+"commercialTimelineHelp" = "%@ Werbeblöcke sind orange markiert. Die Aufnahme bleibt unverändert.";
+"commercialHost" = "HTSP-Server";
+"commercialPort" = "HTSP-Port";
+"commercialSameServer" = "Wie TVHeadend";
+"commercialSettingsHelp" = "TVHeadend liest Comskip-Dateien (.txt) und EDL-Dateien (.edl) neben der Aufnahme. Dafür muss HTSP erreichbar sein, normalerweise auf Port 9982. Ein leeres Serverfeld verwendet den TVHeadend-Server. Die vorhandenen Zugangsdaten werden genutzt. [Comskip](https://github.com/erikkaashoek/Comskip) muss auf dem Server eingerichtet sein.";
+"commercialEndpointInvalid" = "Trage einen HTSP-Servernamen ohne URL und einen Port zwischen 1 und 65535 ein.";
+"commercialConnectionFailed" = "HTSP ist nicht erreichbar. Prüfe Server und Port unter Einstellungen → Werbemarkierungen.";
+"commercialAccessDenied" = "TVHeadend hat den HTSP-Zugriff abgelehnt. Prüfe die Zugangsdaten und die HTSP- und Aufnahmerechte des Benutzers.";
+"commercialResponseInvalid" = "TVHeadend hat ungültige Werbemarkierungen oder eine ungültige HTSP-Antwort geliefert.";
+"commercialRecordingMissing" = "Die Aufnahme konnte im HTSP-Katalog nicht eindeutig zugeordnet werden.";
 "recordingSeen" = "Gesehen";
 "recordingStarted" = "Angefangen";
 "recordingUnseen" = "Ungesehen";
@@ -366,7 +402,7 @@
 "checkForUpdates" = "Nach Updates suchen …";
 "softwareUpdates" = "Softwareupdates";
 "automaticUpdateChecks" = "Automatisch nach Updates suchen";
-"automaticUpdateNote" = "Prüft GitHub einmal täglich. Du lädst und installierst Updates selbst. Die Einstellung gilt sofort.";
+"automaticUpdateNote" = "Prüft einmal täglich und meldet verfügbare Updates.";
 "installedVersion" = "Version %@";
 "updateInstalled" = "Installiert: %@ · %@";
 "updateAvailable" = "Tunerfenster %@ ist verfügbar";
@@ -387,3 +423,13 @@
 "updateInvalidRelease" = "Die Release-Angaben lassen sich nicht prüfen. Versuche es später erneut.";
 "updateInvalidCurrentVersion" = "Dieser Build hat keine gültige Versionsnummer. Installiere eine offizielle Tunerfenster-Version.";
 "updateOpenFailed" = "Der Browser lässt sich nicht öffnen. Versuche es erneut oder öffne github.com/NemoN/Tunerfenster/releases.";
+
+"installUpdate" = "Update installieren …";
+
+"updateInstalling" = "Update läuft …";
+
+"updateAutomaticInstallNote" = "Tunerfenster lädt das Update und prüft es. Bestätige die Installation, um die App zu ersetzen und neu zu starten. Deine Einstellungen bleiben erhalten.";
+
+"updateInstallerUnavailable" = "Die Installation konnte nicht starten. Öffne die Versionshinweise, um die DMG herunterzuladen und selbst zu installieren.";
+
+"updateRosettaNote" = "Diese Intel-Version läuft über Rosetta. Das Update installiert die native Version für Apple Silicon.";

@@ -69,6 +69,10 @@ struct Connection: Codable, Equatable, Sendable {
     func save() throws {
         guard baseURL != nil else { throw AppError.message("invalidAddressInput") }
         try Keychain.save(password: password, account: address + "|" + username)
+        saveAsCurrent()
+    }
+
+    func saveAsCurrent() {
         UserDefaults.standard.set(address, forKey: "serverAddress")
         UserDefaults.standard.set(username, forKey: "serverUser")
         UserDefaults.standard.set(auth, forKey: "serverAuth")

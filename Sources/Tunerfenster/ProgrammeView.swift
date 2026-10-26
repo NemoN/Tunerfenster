@@ -19,10 +19,22 @@ struct FocusedTunerView: View {
                 detailsHandle(sideBySide: sideBySide)
                 if detailsVisible {
                     if sideBySide {
-                        VStack(spacing: 10) {
-                            ProgrammeView(monitor: monitor, tuner: tuner).frame(maxHeight: .infinity)
-                            FocusedReceptionView(monitor: monitor, tuner: tuner)
+                        Group {
+                            if monitor.viewingMode == .tv {
+                                tvDetails(compact: false, width: 320, height: geometry.size.height)
+                            } else {
+                                VStack(spacing: 10) {
+                                    ProgrammeView(monitor: monitor, tuner: tuner).frame(maxHeight: .infinity)
+                                    FocusedReceptionView(monitor: monitor, tuner: tuner)
+                                }
+                            }
                         }.frame(width: 320, height: geometry.size.height)
+                    } else if monitor.viewingMode == .tv {
+                        // Give height back to the video as the window shrinks.
+                        // The compact minimum keeps the heading and current title visible.
+                        let height = min(300, max(112, geometry.size.height - 440))
+                        tvDetails(compact: true, width: geometry.size.width, height: height)
+                            .frame(height: height)
                     } else {
                         ScrollView {
                             VStack(spacing: 10) {
@@ -33,6 +45,19 @@ struct FocusedTunerView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func tvDetails(compact: Bool, width: CGFloat, height: CGFloat) -> some View {
+        RecordingSplitView(name: compact ? "TunerfensterTVDetailsCompactV2" : "TunerfensterTVDetailsV1",
+                           isVertical: compact, minimumFirst: compact ? 280 : 100, minimumSecond: compact ? 160 : 96,
+                           initialFraction: compact ? 0.7 : 0.84, initialLength: compact ? width : height,
+                           proportionalResize: compact) {
+            ProgrammeView(monitor: monitor, tuner: tuner, compact: compact, titleOnly: compact && height < 140)
+                .frame(maxHeight: .infinity)
+        } second: {
+            FocusedReceptionView(monitor: monitor, tuner: tuner, expands: true)
+                .frame(maxHeight: .infinity)
         }
     }
 
@@ -65,6 +90,8 @@ struct ProgrammeView: View {
     @ObservedObject var monitor: Monitor
     let tuner: Tuner
     var scrolls = true
+    var compact = false
+    var titleOnly = false
     @State private var logo: (key: String, image: NSImage)?
 
     private var logoKey: String {
@@ -92,16 +119,8 @@ struct ProgrammeView: View {
 
     private var programmeContent: some View {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .center, spacing: 12) {
-                    Text(L10n.text("programmeFor", monitor.preview(for: tuner)?.title ?? monitor.headerTuner(for: tuner).input.shortName))
-                        .font(.headline).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let logo, logo.key == logoKey {
-                        Image(nsImage: logo.image).resizable().scaledToFit()
-                            .frame(width: 84, height: 50, alignment: .center)
-                            .accessibilityLabel(L10n.text("channelLogo", monitor.programmeChannel?.name ?? ""))
-                    }
+                TimelineView(.periodic(from: .now, by: 15)) { context in
+                    programmeHeader(current: monitor.programme?.current(at: context.date))
                 }
                 if !monitor.connected {
                     message(L10n.text("programmeOffline"))
@@ -123,29 +142,64 @@ struct ProgrammeView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             if let current {
                                 programme(current, label: "programmeNow", prominent: true)
-                                ProgressView(value: current.progress(at: context.date)).accessibilityLabel(L10n.text("programmeProgress"))
-                                if monitor.viewingMode == .tv {
-                                    ProgrammeRecordingControls(recorder: monitor.recorder, event: current,
-                                                               connected: monitor.connected && !monitor.paused) {
-                                        monitor.updateProgramme(force: true)
+                                if !titleOnly {
+                                    ProgressView(value: current.progress(at: context.date)).accessibilityLabel(L10n.text("programmeProgress"))
+                                    if monitor.viewingMode == .tv && !compact {
+                                        recordingControls(current)
                                     }
-                                }
-                                if let details = current.details {
-                                    Text(details).font(.callout).lineSpacing(3).textSelection(.enabled)
+                                    if let details = current.details {
+                                        Text(details).font(.callout).lineSpacing(3).textSelection(.enabled)
+                                    }
                                 }
                             } else {
                                 message(L10n.text("programmeNoCurrent"))
                             }
-                            Divider()
-                            if let next {
-                                programme(next, label: "programmeNext", prominent: false)
-                            } else {
-                                message(L10n.text("programmeNoNext"))
+                            if !titleOnly {
+                                Divider()
+                                if let next {
+                                    programme(next, label: "programmeNext", prominent: false)
+                                } else {
+                                    message(L10n.text("programmeNoNext"))
+                                }
                             }
                         }
                     }
                 }
-            }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, titleOnly ? 0 : 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AutomaticScrollIndicators())
+    }
+
+    private func programmeHeader(current: Programme?) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(L10n.text("programmeFor", monitor.preview(for: tuner)?.title ?? monitor.headerTuner(for: tuner).input.shortName))
+                    .font(.headline).textSelection(.enabled)
+                    .lineLimit(compact ? 2 : nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                if compact, monitor.viewingMode == .tv, monitor.connected, !monitor.paused,
+                   !monitor.programmeLoading, monitor.programmeError == nil, let current {
+                    recordingControls(current, compact: true)
+                        .layoutPriority(1)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            if let logo, logo.key == logoKey {
+                Image(nsImage: logo.image).resizable().scaledToFit()
+                    .frame(width: 84, height: 50, alignment: .center)
+                    .frame(height: 34)
+                    .offset(y: 10)
+                    .accessibilityLabel(L10n.text("channelLogo", monitor.programmeChannel?.name ?? ""))
+            }
+        }
+    }
+
+    private func recordingControls(_ event: Programme, compact: Bool = false) -> some View {
+        ProgrammeRecordingControls(recorder: monitor.recorder, event: event,
+                                   connected: monitor.connected && !monitor.paused,
+                                   startedAt: monitor.recordingStartedAt(for: event), compact: compact) {
+            monitor.updateProgramme(force: true)
+        }
     }
 
     private func message(_ text: String) -> some View {
@@ -162,7 +216,7 @@ struct ProgrammeView: View {
             }
             Text(event.title ?? L10n.text("programmeUntitled"))
                 .font(prominent ? .title2.weight(.semibold) : .headline).textSelection(.enabled)
-            if let subtitle = event.subtitle, !subtitle.isEmpty, subtitle != event.title {
+            if !titleOnly, let subtitle = event.subtitle, !subtitle.isEmpty, subtitle != event.title {
                 Text(subtitle).font(.callout).foregroundStyle(ThemeColors.detailSecondary).textSelection(.enabled)
             }
         }
@@ -177,6 +231,8 @@ private struct ProgrammeRecordingControls: View {
     @ObservedObject var recorder: Recorder
     let event: Programme
     let connected: Bool
+    let startedAt: Date?
+    var compact = false
     let refreshProgramme: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -190,25 +246,38 @@ private struct ProgrammeRecordingControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             if recording {
-                if !reduceMotion && scenePhase != .background {
-                    TimelineView(.periodic(from: .now, by: 0.8)) { context in
-                        let pulse = Int(context.date.timeIntervalSince1970 / 0.8).isMultiple(of: 2)
-                        recordingButton(tint: pulse ? ThemeColors.recording : ThemeColors.recordingPulse)
-                            .animation(.easeInOut(duration: 0.6), value: pulse)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    HStack(spacing: 8) {
+                        if !reduceMotion && scenePhase != .background {
+                            let pulse = Int(context.date.timeIntervalSince1970 / 0.8).isMultiple(of: 2)
+                            recordingButton(tint: pulse ? ThemeColors.recording : ThemeColors.recordingPulse)
+                                .animation(.easeInOut(duration: 0.6), value: pulse)
+                        } else {
+                            recordingButton(tint: ThemeColors.recording)
+                        }
+                        if !busy, let elapsed = RecordingElapsed.label(since: startedAt, at: context.date) {
+                            Text(elapsed)
+                                .font(.callout).foregroundStyle(ThemeColors.detailSecondary)
+                                .monospacedDigit().fixedSize()
+                                .accessibilityLabel(L10n.text("recordingElapsed"))
+                                .accessibilityValue(elapsed)
+                        }
                     }
-                } else {
-                    recordingButton(tint: ThemeColors.recording)
                 }
-                Text(L10n.text("recordingActive")).font(.caption).foregroundStyle(.secondary)
+                if !compact { Text(L10n.text("recordingActive")).font(.caption).foregroundStyle(.secondary) }
             } else if restart {
                 recordingButton(tint: ThemeColors.recording)
-                Text(L10n.text("recordingKept")).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !compact {
+                    Text(L10n.text("recordingKept")).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 availability
             } else if current.recordingIsFinished || recorder.stopped.contains(current.dvrUuid ?? "") {
                 Label(L10n.text("recordingStopped"), systemImage: "checkmark.circle").font(.callout)
-                Text(L10n.text("recordingKept")).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !compact {
+                    Text(L10n.text("recordingKept")).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else if current.hasRecording || recorder.submitted.contains(key) {
                 Label(L10n.text(recorder.submitted.contains(key) ? "recordingRequested" : "recordingExists"), systemImage: "checkmark.circle")
                     .font(.callout).foregroundStyle(.secondary)
@@ -248,7 +317,8 @@ private struct ProgrammeRecordingControls: View {
     }
 
     private func recordingButton(tint: Color) -> some View {
-        Button {
+        let title = L10n.text(recording ? (busy ? "recordingStopping" : "stopRecording") : (busy ? "recordingRequesting" : (restart ? "recordAgain" : "recordUntilEnd")))
+        return Button {
             let stop = recording
             Task {
                 if stop { await recorder.stop(event) }
@@ -256,10 +326,14 @@ private struct ProgrammeRecordingControls: View {
                 refreshProgramme()
             }
         } label: {
-            Label(L10n.text(recording ? (busy ? "recordingStopping" : "stopRecording") : (busy ? "recordingRequesting" : (restart ? "recordAgain" : "recordUntilEnd"))),
-                  systemImage: recording ? "stop.fill" : "record.circle")
+            if recording {
+                Text(title)
+            } else {
+                Label(title, systemImage: "record.circle")
+            }
         }
-        .buttonStyle(RecordingButtonStyle(color: tint))
+        .buttonStyle(RecordingButtonStyle(color: tint, compact: compact))
+        .fixedSize()
         .focused($buttonFocused)
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(buttonFocused ? Color.accentColor : .clear, lineWidth: 2))
         .disabled(!connected || (recording ? !recorder.canStop(event) : !recorder.canRecord(event)))
@@ -270,12 +344,13 @@ private struct ProgrammeRecordingControls: View {
 
 private struct RecordingButtonStyle: ButtonStyle {
     let color: Color
+    var compact = false
     @Environment(\.isEnabled) private var enabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.callout.weight(.medium))
-            .padding(.horizontal, 11).padding(.vertical, 6)
+            .font(compact ? .caption.weight(.medium) : .callout.weight(.medium))
+            .padding(.horizontal, compact ? 8 : 11).padding(.vertical, compact ? 5 : 6)
             .foregroundStyle(.white)
             .background {
                 RoundedRectangle(cornerRadius: 6).fill(color)

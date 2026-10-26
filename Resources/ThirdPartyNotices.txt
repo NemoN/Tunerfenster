@@ -31,3 +31,12 @@ Signatur. Ein kompatibles, selbst geändertes Framework lässt sich einsetzen un
 für den lokalen Einsatz zusammen mit der App neu signieren (zuerst Framework,
 dann App). Die LGPL-Rechte bleiben erhalten, einschließlich der Fehlersuche an
 Änderungen der Bibliothek. Die Lizenz enthält keine Gewährleistung.
+
+Sparkle 2.10.0 / Sparkle-Projekt und Mitwirkende
+Sparkle 2.10.0 / Sparkle project and contributors
+https://github.com/sparkle-project/Sparkle/tree/2.10.0
+
+Sparkle handles downloading, verifying and installing updates. Its license is
+included as Sparkle-LICENSE.txt. Private update-signing keys stay in Keychain.
+Sparkle lädt, prüft und installiert Updates. Seine Lizenz liegt als
+Sparkle-LICENSE.txt bei. Private Update-Signaturschlüssel bleiben im Schlüsselbund.

@@ -6,10 +6,39 @@ struct RecordingTimeline: NSViewRepresentable {
     @Binding var value: Double
     var maximum: Double
     var enabled: Bool
+    var commercialBreaks: [CommercialBreak] = []
     var onEditingChanged: (Bool) -> Void = { _ in }
     var onEditingEnded: () -> Void
 
     final class Cell: NSSliderCell {
+        var commercialBreaks = [CommercialBreak]()
+
+        static func progressRect(bar: NSRect, knobCenter: CGFloat) -> NSRect {
+            NSRect(x: bar.minX, y: bar.minY, width: max(0, min(bar.width, knobCenter - bar.minX)), height: bar.height)
+        }
+
+        override func drawBar(inside rect: NSRect, flipped: Bool) {
+            super.drawBar(inside: rect, flipped: flipped)
+            let bar = barRect(flipped: flipped)
+            let progress = Self.progressRect(bar: bar, knobCenter: knobRect(flipped: flipped).midX)
+            if progress.width > 0 {
+                NSGraphicsContext.saveGraphicsState()
+                NSBezierPath(roundedRect: bar, xRadius: bar.height / 2, yRadius: bar.height / 2).addClip()
+                NSColor.controlAccentColor.setFill()
+                NSBezierPath(rect: progress).fill()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            NSColor.systemOrange.setFill()
+            for item in commercialBreaks {
+                guard let range = item.fractions(duration: maxValue) else { continue }
+                let mark = NSRect(x: bar.minX + range.lowerBound * bar.width,
+                                  y: bar.midY - max(4, bar.height) / 2,
+                                  width: max(1, (range.upperBound - range.lowerBound) * bar.width),
+                                  height: max(4, bar.height))
+                NSBezierPath(roundedRect: mark, xRadius: 1, yRadius: 1).fill()
+            }
+        }
+
         override func knobRect(flipped: Bool) -> NSRect {
             let rect = super.knobRect(flipped: flipped)
             let bar = barRect(flipped: flipped)
@@ -63,8 +92,11 @@ struct RecordingTimeline: NSViewRepresentable {
         control.maxValue = max(1, maximum)
         control.doubleValue = max(0, min(control.maxValue, value))
         control.isEnabled = enabled
+        (control.cell as? Cell)?.commercialBreaks = commercialBreaks
+        control.needsDisplay = true
         control.onEditingEnded = onEditingEnded
         control.onEditingChanged = onEditingChanged
         control.setAccessibilityLabel(L10n.text("recordingPosition"))
+        control.setAccessibilityHelp(commercialBreaks.isEmpty ? nil : L10n.text("commercialTimelineHelp", String(commercialBreaks.count)))
     }
 }

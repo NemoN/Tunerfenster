@@ -19,6 +19,7 @@ final class VLC: @unchecked Sendable {
     let playerRelease: @convention(c) (VLCRef?) -> Void
     let setMedia: @convention(c) (VLCRef?, VLCRef?) -> Void
     let setView: @convention(c) (VLCRef?, UnsafeMutableRawPointer?) -> Void
+    let setCrop: @convention(c) (VLCRef?, UnsafePointer<CChar>?) -> Void
     let play: @convention(c) (VLCRef?) -> Int32
     let stop: @convention(c) (VLCRef?) -> Void
     let state: @convention(c) (VLCRef?) -> Int32
@@ -61,6 +62,7 @@ final class VLC: @unchecked Sendable {
         playerRelease = try bind("libvlc_media_player_release", (@convention(c) (VLCRef?) -> Void).self)
         setMedia = try bind("libvlc_media_player_set_media", (@convention(c) (VLCRef?, VLCRef?) -> Void).self)
         setView = try bind("libvlc_media_player_set_nsobject", (@convention(c) (VLCRef?, UnsafeMutableRawPointer?) -> Void).self)
+        setCrop = try bind("libvlc_video_set_crop_geometry", (@convention(c) (VLCRef?, UnsafePointer<CChar>?) -> Void).self)
         play = try bind("libvlc_media_player_play", (@convention(c) (VLCRef?) -> Int32).self)
         stop = try bind("libvlc_media_player_stop", (@convention(c) (VLCRef?) -> Void).self)
         state = try bind("libvlc_media_player_get_state", (@convention(c) (VLCRef?) -> Int32).self)
@@ -100,20 +102,25 @@ final class VLC: @unchecked Sendable {
         return StreamStatistics(buffer: UnsafeRawBufferPointer(start: buffer, count: StreamStatistics.byteCount),
                                 width: width, height: height)
     }
+
 }
 
 private final class PlayerHandle: @unchecked Sendable {
     let api: VLC
     let pointer: VLCRef
+    let canvas: VideoCanvas
     let queue = DispatchQueue(label: "de.local.Tunerfenster.player", qos: .userInitiated)
-    init(api: VLC, pointer: VLCRef) { self.api = api; self.pointer = pointer }
+    init(api: VLC, pointer: VLCRef, canvas: VideoCanvas) {
+        self.api = api; self.pointer = pointer; self.canvas = canvas
+    }
     deinit {
-        let api = api, pointer = pointer
+        let api = api, pointer = pointer, canvas = canvas
         // VLC's stop can wait for its main-thread video teardown. Never block AppKit.
         queue.async {
             api.stop(pointer)
             api.setView(pointer, nil)
             api.playerRelease(pointer)
+            DispatchQueue.main.async { withExtendedLifetime(canvas) {} }
         }
     }
 }
@@ -152,8 +159,9 @@ final class Playback: ObservableObject {
         do {
             let api = try VLC.shared.get()
             guard let pointer = api.playerNew(api.instance) else { throw AppError.message("vlcPlayerFailed") }
-            handle = PlayerHandle(api: api, pointer: pointer)
+            handle = PlayerHandle(api: api, pointer: pointer, canvas: canvas)
             api.setView(pointer, Unmanaged.passUnretained(canvas).toOpaque())
+            "0+1+0+0".withCString { api.setCrop(pointer, $0) }
         } catch { statusMessage = .wrapping(error) }
     }
 
@@ -284,6 +292,12 @@ final class Playback: ObservableObject {
         var width: UInt32 = 0, height: UInt32 = 0
         _ = handle.api.videoSize(handle.pointer, 0, &width, &height)
         hasVideo = width > 0 && height > 0
+        if hasVideo {
+            // A channel change can replace the vout while the media-player crop
+            // variable still holds its old value. Apply it to the active vout,
+            // including outputs recreated after a format change or reconnect.
+            handle.queue.async { "0+1+0+0".withCString { handle.api.setCrop(handle.pointer, $0) } }
+        }
         isPlaying = state == 3 && width > 0
         isPaused = state == 4
         ended = state == 6
@@ -300,38 +314,68 @@ final class Playback: ObservableObject {
 
 /// SwiftUI may keep the previous surface alive during a full-screen transition.
 /// Give each surface its own host so only the current parent sizes VLC's canvas.
-final class VideoHost: NSView {
+final class VideoHost: NSView, NSGestureRecognizerDelegate {
     let canvas: VideoCanvas
+    private var onDoubleClick: (() -> Void)?
+    private lazy var doubleClick = NSClickGestureRecognizer(target: self, action: #selector(recognizedDoubleClick(_:)))
+    override var isOpaque: Bool { true }
+
     init(canvas: VideoCanvas) {
         self.canvas = canvas
         super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.masksToBounds = true
+        doubleClick.numberOfClicksRequired = 2
+        doubleClick.buttonMask = 1
+        doubleClick.delegate = self
+        doubleClick.isEnabled = false
+        addGestureRecognizer(doubleClick)
         addSubview(canvas)
         canvas.autoresizingMask = [.width, .height]
         canvas.frame = bounds
     }
     required init?(coder: NSCoder) { nil }
+    func setDoubleClickAction(_ action: (() -> Void)?) {
+        onDoubleClick = action
+        if doubleClick.isEnabled != (action != nil) { doubleClick.isEnabled = action != nil }
+    }
+    @objc private func recognizedDoubleClick(_ recognizer: NSClickGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        invokeDoubleClick()
+    }
+    func invokeDoubleClick() {
+        guard canvas.superview === self else { return }
+        onDoubleClick?()
+    }
+    func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
+        canvas.superview === self && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+    }
     func setCornerRadius(_ radius: CGFloat) {
-        guard radius > 0 || layer != nil else { return }
-        wantsLayer = true
-        layer?.cornerRadius = radius
-        layer?.masksToBounds = radius > 0
+        if layer?.cornerRadius != radius { layer?.cornerRadius = radius }
     }
     override func layout() {
         super.layout()
-        if canvas.superview === self { canvas.frame = bounds }
+        guard canvas.superview === self else { return }
+        let target = backingAlignedRect(bounds, options: .alignAllEdgesOutward)
+        // Unchanged frames must not repeatedly reshape VLC's drawing surface.
+        if canvas.frame != target { canvas.frame = target }
     }
 }
 
 struct VideoSurface: NSViewRepresentable {
     let playback: Playback
     var cornerRadius: CGFloat = 0
+    var onDoubleClick: (() -> Void)? = nil
     func makeNSView(context: Context) -> VideoHost {
         let view = VideoHost(canvas: playback.canvas)
         view.setCornerRadius(cornerRadius)
+        view.setDoubleClickAction(onDoubleClick)
         return view
     }
     func updateNSView(_ nsView: VideoHost, context: Context) {
         nsView.setCornerRadius(cornerRadius)
+        nsView.setDoubleClickAction(onDoubleClick)
         nsView.needsLayout = true
     }
 }

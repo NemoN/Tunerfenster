@@ -149,6 +149,9 @@ final class RecordingProgressSync {
     }
 
     func merge(_ catalogue: [SavedRecording], since requestRevision: Int) {
+        let previousStates = states
+        let previousPending = Set(pending.keys)
+        let hadError = error != nil
         let ids = Set(catalogue.map(\.id))
         pending = pending.filter { ids.contains($0.key) }
         if pending.isEmpty { error = nil }
@@ -156,7 +159,8 @@ final class RecordingProgressSync {
         for recording in catalogue where (changedAt[recording.id] ?? 0) <= requestRevision {
             states[recording.id] = recording.progress
         }
-        persist(); onChange?()
+        if previousPending != Set(pending.keys) { persist() }
+        if previousStates != states || previousPending != Set(pending.keys) || hadError != (error != nil) { onChange?() }
         retry()
     }
 

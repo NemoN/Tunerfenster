@@ -11,13 +11,20 @@ private actor RecordingStub: RecordingAPI {
     let keepRunning: Bool
     let refuseStop: Bool
     let refuseActiveCheck: Bool
+    var delayProfiles = false
+    var profileReads = 0
+    func setDelayProfiles(_ value: Bool) { delayProfiles = value }
     init(profiles: [RecordingProfile], event: Programme?, entry: RecordingEntry? = nil,
          keepRunning: Bool = false, refuseStop: Bool = false, refuseActiveCheck: Bool = false) {
         self.profiles = profiles; self.event = event; self.entry = entry
         self.keepRunning = keepRunning; self.refuseStop = refuseStop
         self.refuseActiveCheck = refuseActiveCheck
     }
-    func recordingProfiles() async throws -> [RecordingProfile] { profiles }
+    func recordingProfiles() async throws -> [RecordingProfile] {
+        profileReads += 1
+        if delayProfiles { try await Task.sleep(for: .seconds(10)) }
+        return profiles
+    }
     func seedRecording(_ entry: RecordingEntry) { created[entry.uuid] = entry }
     func recordingEvent(_ event: Programme, language: AppLanguage) async throws -> Programme? {
         try await Task.sleep(for: .milliseconds(20))
@@ -51,6 +58,81 @@ private actor RecordingStub: RecordingAPI {
 
 final class RecordingTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 150)
+
+    @MainActor func testCancelledAvailabilityCheckPreservesProfilesAndAllowsImmediateRetry() async {
+        var time = Date(timeIntervalSince1970: 150)
+        let recorder = Recorder(now: { time })
+        let stub = RecordingStub(profiles: [.init(uuid: "default")], event: nil)
+        recorder.configure(stub)
+        await recorder.refreshAvailability()
+        XCTAssertEqual(recorder.profile?.uuid, "default")
+        time = time.addingTimeInterval(50)
+        await stub.setDelayProfiles(true)
+        let task = Task { await recorder.refreshAvailability(force: true) }
+        for _ in 0..<100 where !recorder.checking { await Task.yield() }
+        XCTAssertTrue(recorder.checking)
+        task.cancel()
+        await task.value
+        XCTAssertFalse(recorder.checking)
+        XCTAssertNil(recorder.availabilityError)
+        XCTAssertEqual(recorder.profile?.uuid, "default")
+        await stub.setDelayProfiles(false)
+        await recorder.refreshAvailability()
+        let reads = await stub.profileReads
+        XCTAssertEqual(reads, 3)
+        recorder.configure(nil)
+    }
+
+    @MainActor func testElapsedTimeUsesRecorderSubscriptionAndSurvivesAppRelaunch() async {
+        var active = event
+        active.dvrUuid = "existing"; active.dvrState = "recording"
+        let entry = RecordingEntry(uuid: "existing", channel: "channel", broadcast: 42, sched_status: "recording",
+                                   create: 130, start_real: 90)
+        let api = RecordingStub(profiles: [], event: active, entry: entry)
+        let subscription = Subscription(id: 1, channel: "News", title: "DVR: Current", start: 135)
+        for _ in 0..<2 {
+            let recorder = Recorder(now: { self.now })
+            recorder.configure(api)
+            await recorder.refreshRecording(active)
+            let start = recorder.startedAt(for: active, subscriptions: [subscription], channelName: "News")
+            XCTAssertEqual(start, Date(timeIntervalSince1970: 135))
+            XCTAssertEqual(RecordingElapsed.label(since: start, at: now), "00:00:15")
+        }
+    }
+
+    @MainActor func testElapsedTimeIgnoresOtherProgrammesAndUsesLateCreationInsteadOfEPGStart() async {
+        var active = event
+        active.dvrUuid = "new"; active.dvrState = "recording"
+        let entry = RecordingEntry(uuid: "new", channel: "channel", broadcast: 42, sched_status: "recording",
+                                   create: 140, start_real: 90)
+        let recorder = Recorder(now: { self.now })
+        recorder.configure(RecordingStub(profiles: [], event: active, entry: entry))
+        await recorder.refreshRecording(active)
+        let unrelated = [
+            Subscription(id: 1, channel: "Other channel", title: "DVR: Current", start: 145),
+            Subscription(id: 2, channel: "News", title: "DVR: Other programme", start: 146),
+            Subscription(id: 3, channel: "News", title: "HTTP", start: 147),
+            Subscription(id: 4, channel: "News", title: "DVR: Current", start: 130)
+        ]
+        let start = recorder.startedAt(for: active, subscriptions: unrelated, channelName: "News")
+        XCTAssertEqual(start, Date(timeIntervalSince1970: 140))
+        XCTAssertEqual(RecordingElapsed.label(since: start, at: now), "00:00:10")
+    }
+
+    @MainActor func testMissingRecordingTimestampDoesNotInventProgrammeElapsedTime() {
+        var active = event
+        active.dvrUuid = "existing"; active.dvrState = "recording"
+        let recorder = Recorder(now: { self.now })
+        XCTAssertNil(recorder.startedAt(for: active, subscriptions: [], channelName: "News"))
+    }
+
+    func testElapsedClockPadsHoursAndClampsFutureStarts() {
+        let start = Date(timeIntervalSince1970: 100)
+        XCTAssertEqual(RecordingElapsed.label(since: start, at: Date(timeIntervalSince1970: 100)), "00:00:00")
+        XCTAssertEqual(RecordingElapsed.label(since: start, at: Date(timeIntervalSince1970: 100 + 3723)), "01:02:03")
+        XCTAssertEqual(RecordingElapsed.label(since: start, at: Date(timeIntervalSince1970: 90)), "00:00:00")
+        XCTAssertNil(RecordingElapsed.label(since: nil, at: now))
+    }
     private var event: Programme { Programme(eventId: 42, channelUuid: "channel", start: 100, stop: 200, title: "Current") }
     private var active: Programme {
         var result = event

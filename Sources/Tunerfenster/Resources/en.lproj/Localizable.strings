@@ -84,7 +84,19 @@
 "noAuthentication" = "No authentication";
 "credentialsNote" = "The app saves connection settings on this Mac and passwords in macOS Keychain.";
 "cancel" = "Cancel";
-"connect" = "Connect";
+"connect" = "Save";
+"serverList" = "TVHeadend servers";
+"serverName" = "Name";
+"newServer" = "New server";
+"addServer" = "Add server";
+"removeServer" = "Remove server";
+"removeServerTitle" = "Remove server?";
+"removeServerMessage" = "The server will be removed from Tunerfenster.";
+"duplicateServer" = "This server and user are already saved.";
+"selectServerHelp" = "Choose the active server for TV and recordings";
+"serversLoading" = "Servers are still loading.";
+"someServersOffline" = "At least one server is disconnected.";
+"followAllServersHelp" = "Reset manual channel choices on all saved servers";
 "language" = "Language";
 "languageNote" = "Changes the language immediately and saves it for the next launch.";
 "appearance" = "Appearance";
@@ -113,6 +125,8 @@
 "recordingRequesting" = "Requesting recording …";
 "recordingRequested" = "Recording requested";
 "recordingActive" = "Recording in progress";
+"encryptedStream" = "Encrypted channel";
+"recordingElapsed" = "Recording duration";
 "recordingServerError" = "TVHeadend reports a recording error. Check the recording in its Digital Video Recorder.";
 "recordingExists" = "Recording already exists";
 "recordingFailed" = "Could not request the recording. %@";
@@ -142,6 +156,8 @@
 "epgScanCountMany" = "%@ EPG scans";
 "summary" = "%@ · %@ · %@ · %@";
 "updatedAt" = "Updated %@ ·";
+"streamThroughput" = "Network: %@ Mbit/s ·";
+"streamThroughputHelp" = "Data received by all streams in Tunerfenster, including recordings. Excludes network overhead.";
 "pollingEvery" = "every %@ s";
 "seconds" = "%@ s";
 "statusPollingInterval" = "TVHeadend refresh interval";
@@ -240,6 +256,8 @@
 "manualMode" = "Manual";
 "tunerPending" = "TVHeadend allocation pending";
 "network" = "Network";
+"multiplex" = "Multiplex";
+"receptionSubscriptions" = "Subscriptions";
 "frequency" = "Frequency";
 "polarisation" = "Polarisation";
 "band" = "Band";
@@ -332,6 +350,24 @@
 "resumeRecording" = "Resume recording playback";
 "replayRecording" = "Play recording again";
 "recordingPosition" = "Playback position";
+"commercialSettings" = "Commercial markers";
+"commercialLoading" = "Loading commercial markers…";
+"commercialUnavailable" = "Commercial markers unavailable";
+"commercialReload" = "Reload commercial markers";
+"commercialSkip" = "Skip commercials";
+"commercialSkipHelp" = "Jump to the end of the current commercial break.";
+"commercialAutomatic" = "Skip commercials automatically";
+"commercialAutomaticHelp" = "Skips each marked commercial break once per playback. Seek back to watch it.";
+"commercialTimelineHelp" = "%@ commercial breaks are marked in orange. The recording is unchanged.";
+"commercialHost" = "HTSP server";
+"commercialPort" = "HTSP port";
+"commercialSameServer" = "Same as TVHeadend";
+"commercialSettingsHelp" = "TVHeadend reads Comskip files (.txt) and EDL files (.edl) stored beside the recording. HTSP must be reachable, usually on port 9982. Leave the server field empty to use the TVHeadend server. The existing credentials are used. [Comskip](https://github.com/erikkaashoek/Comskip) must be configured on the server.";
+"commercialEndpointInvalid" = "Enter an HTSP hostname without a URL and a port between 1 and 65535.";
+"commercialConnectionFailed" = "HTSP is unreachable. Check the server and port under Settings → Commercial markers.";
+"commercialAccessDenied" = "TVHeadend denied HTSP access. Check the credentials and the user's HTSP and recording permissions.";
+"commercialResponseInvalid" = "TVHeadend returned invalid commercial markers or an invalid HTSP response.";
+"commercialRecordingMissing" = "The recording could not be matched unambiguously in the HTSP catalogue.";
 "recordingSeen" = "Watched";
 "recordingStarted" = "Partly watched";
 "recordingUnseen" = "Unwatched";
@@ -366,7 +402,7 @@
 "checkForUpdates" = "Check for Updates…";
 "softwareUpdates" = "Software Updates";
 "automaticUpdateChecks" = "Check for updates automatically";
-"automaticUpdateNote" = "Checks GitHub once a day. You download and install updates yourself. This setting takes effect immediately.";
+"automaticUpdateNote" = "Checks once a day and notifies you when an update is available.";
 "installedVersion" = "Version %@";
 "updateInstalled" = "Installed: %@ · %@";
 "updateAvailable" = "Tunerfenster %@ is available";
@@ -387,3 +423,13 @@
 "updateInvalidRelease" = "Cannot verify the release information. Try again later.";
 "updateInvalidCurrentVersion" = "This build has no valid version number. Install an official Tunerfenster release.";
 "updateOpenFailed" = "Cannot open the browser. Try again or visit github.com/NemoN/Tunerfenster/releases.";
+
+"installUpdate" = "Install update…";
+
+"updateInstalling" = "Update in progress…";
+
+"updateAutomaticInstallNote" = "Tunerfenster downloads and verifies the update. Confirm installation to replace the app and restart it. Your settings are kept.";
+
+"updateInstallerUnavailable" = "The installer could not start. Open the release notes to download and install the DMG.";
+
+"updateRosettaNote" = "This Intel build is running through Rosetta. The update will install the native Apple Silicon version.";

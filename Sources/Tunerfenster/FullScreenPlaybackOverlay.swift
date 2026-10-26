@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct FullScreenPlaybackOverlay<Transport: View>: View {
@@ -8,6 +7,7 @@ struct FullScreenPlaybackOverlay<Transport: View>: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let title: String
     var detail: String? = nil
+    var encrypted = false
     @ViewBuilder let transport: () -> Transport
 
     var body: some View {
@@ -17,7 +17,16 @@ struct FullScreenPlaybackOverlay<Transport: View>: View {
                     HStack(alignment: .center, spacing: 16) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(title).font(.headline).lineLimit(1)
-                            if let detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            if let detail {
+                                HStack(spacing: 6) {
+                                    Text(detail).lineLimit(1)
+                                    if encrypted {
+                                        Image(systemName: "key.horizontal.fill")
+                                            .help(L10n.text("encryptedStream")).accessibilityLabel(L10n.text("encryptedStream"))
+                                            .accessibilityIdentifier("encryptedStream")
+                                    }
+                                }.font(.caption).foregroundStyle(.secondary)
+                            }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                         Button { window.toggleFullScreen() } label: {
                             Image(systemName: "arrow.down.right.and.arrow.up.left").frame(width: 28, height: 28)
@@ -30,7 +39,6 @@ struct FullScreenPlaybackOverlay<Transport: View>: View {
                 .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 24)
                 .frame(maxWidth: .infinity)
                 .background { VideoControlsBackground(edge: .bottom) }
-                .background(FullScreenControlsRegion(controller: window).accessibilityHidden(true))
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(L10n.text("playbackControls"))
                 .transition(.opacity)
@@ -41,20 +49,5 @@ struct FullScreenPlaybackOverlay<Transport: View>: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: visibility.visible)
         .onChange(of: voiceOver, initial: true) { _, value in visibility.useAccessibility(value) }
         .onDisappear { visibility.interact(false) }
-    }
-}
-
-private struct FullScreenControlsRegion: NSViewRepresentable {
-    let controller: PlaybackWindow
-    final class Probe: NSView {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    }
-    func makeNSView(context: Context) -> Probe {
-        let view = Probe()
-        controller.controlsView = view
-        return view
-    }
-    func updateNSView(_ nsView: Probe, context: Context) {
-        controller.controlsView = nsView
     }
 }

@@ -151,10 +151,45 @@ struct FocusedReceptionView: View {
     @ObservedObject private var language = LanguageStore.shared
     @ObservedObject var monitor: Monitor
     let tuner: Tuner
+    var expands = false
     @AppStorage("lnbSwitchMHz") private var switchMHz = 11700.0
     @State private var showingDetails = false
+    @State private var summaryHeight: CGFloat = 0
 
     var body: some View {
+        Group {
+            if expands {
+                GeometryReader { geometry in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            receptionContent.background {
+                                GeometryReader { summary in
+                                    Color.clear
+                                        .onAppear { summaryHeight = summary.size.height }
+                                        .onChange(of: summary.size.height) { _, height in summaryHeight = height }
+                                }
+                            }
+                            // Show the separator only with enough room for an extra row.
+                            if summaryHeight > 0, geometry.size.height >= summaryHeight + 52 {
+                                extendedDetails
+                            }
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(AutomaticScrollIndicators())
+                    }
+                }
+            } else {
+                receptionContent.padding(14)
+            }
+        }
+        .font(.caption).monospacedDigit()
+        .frame(maxWidth: .infinity, maxHeight: expands ? .infinity : nil, alignment: .topLeading)
+        .background { DetailPanelBackground() }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.text("receptionDetails"))
+    }
+
+    private var receptionContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(L10n.text("receptionDetails")).font(.subheadline.weight(.semibold))
@@ -175,15 +210,27 @@ struct FocusedReceptionView: View {
                 .font(.caption.weight(.medium)).monospacedDigit().textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             if let input = source, input.stream != nil {
-                HStack {
-                    Text(input.signalLabel)
-                    Spacer(minLength: 8)
-                    if let snr = input.snrLabel { Text(snr) }
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        Text(input.signalLabel).fixedSize()
+                        Spacer(minLength: 8)
+                        if let snr = input.snrLabel { Text(snr).fixedSize() }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(input.signalLabel)
+                        if let snr = input.snrLabel { Text(snr) }
+                    }
                 }
-                HStack {
-                    Text(L10n.text("bitrate", L10n.decimal((input.bps ?? 0) / 1_000_000)))
-                    Spacer(minLength: 8)
-                    Text(L10n.text("continuityErrorCount", input.cc.map(String.init) ?? "–"))
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        Text(L10n.text("bitrate", L10n.decimal((input.bps ?? 0) / 1_000_000))).fixedSize()
+                        Spacer(minLength: 8)
+                        Text(L10n.text("continuityErrorCount", input.cc.map(String.init) ?? "–")).fixedSize()
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(L10n.text("bitrate", L10n.decimal((input.bps ?? 0) / 1_000_000)))
+                        Text(L10n.text("continuityErrorCount", input.cc.map(String.init) ?? "–"))
+                    }
                 }
             } else {
                 Text(L10n.text(monitor.manual[tuner.id] == nil ? "waitingChannel" : "tunerPending"))
@@ -191,9 +238,44 @@ struct FocusedReceptionView: View {
             }
         }
         .font(.caption).monospacedDigit()
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background { DetailPanelBackground() }
-        .accessibilityElement(children: .contain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var extendedDetails: some View {
+        let mux = monitor.displayedMultiplex(for: tuner)
+        return VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                if let value = mux?.network { detailRow("network", value) }
+                if let value = mux?.name { detailRow("multiplex", value) }
+                if let value = mux?.delsys { detailRow("deliverySystem", value) }
+                if let value = mux?.modulation { detailRow("modulation", value) }
+                if let value = mux?.symbolrate, value > 0 {
+                    detailRow("symbolRate", "\(Multiplex.number(value / 1000)) kSym/s")
+                }
+                if let value = mux?.fec { detailRow("fec", value) }
+                if let value = mux?.orbital { detailRow("orbitalPosition", value) }
+                if let count = source?.subs { detailRow("receptionSubscriptions", String(count)) }
+            }
+            if let source {
+                Text(source.input).foregroundStyle(ThemeColors.detailSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let warning = monitor.receptionWarning {
+                Text(warning.localizedDescription).foregroundStyle(ThemeColors.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .textSelection(.enabled)
+    }
+
+    private func detailRow(_ key: String, _ value: String) -> some View {
+        GridRow(alignment: .top) {
+            Text(L10n.text(key)).foregroundStyle(ThemeColors.detailSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(value).frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var sourceNames: String {
