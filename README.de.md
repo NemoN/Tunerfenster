@@ -5,14 +5,14 @@
 <img src="docs/icon.png" width="96" height="96" alt="Tunerfenster-Symbol">
 
 Tunerfenster ist eine native macOS-App für TVHeadend-Streams. Du kannst alle
-Tuner als Mosaik anzeigen, einen Sender mit Programmführer und Logo ansehen
+Tuner als Mosaik anzeigen, einen Sender mit Programmführer ansehen
 oder Aufzeichnungen vom Server abspielen.
 
 ## Download
 
 Benötigt macOS 14 oder neuer. VLC ist enthalten.
 
-Die signierte und notarisierte Installationsdatei findest du beim [aktuellen Release](https://github.com/NemoN/Tunerfenster/releases/latest).
+Die signierte Installationsdatei findest du auf [aktuellen Release](https://github.com/NemoN/Tunerfenster/releases/latest).
 Wähle die `arm64`-DMG für Apple Silicon oder die `x86_64`-DMG für Intel-Macs.
 
 [Alle Releases und SHA-256-Prüfsummen](https://github.com/NemoN/Tunerfenster/releases)
@@ -124,16 +124,6 @@ Unterordnern. Aufnahmen im Hauptverzeichnis oder allein in einem Ordner stehen
 direkt in der Liste. Beim Verweilen über einer Aufnahme siehst du ihren Pfad.
 **Aktualisieren (⌘R)** übernimmt auf dem Server verschobene Aufnahmen.
 
-Die App kann einen Folgennamen aus dem Untertitel oder einem ausdrücklich
-benannten Episodenfeld in der Beschreibung ergänzen, etwa "Tatort: Charlie".
-Das gilt für alle Serien und Sendungen. Vollständige Titel bleiben erhalten;
-wiederholte Namen und reine Genreangaben werden nicht angehängt. Bei
-uneindeutigen Metadaten bleibt der Originaltitel stehen. Nur der angezeigte
-Name ändert sich; Einträge und Dateien auf dem Server bleiben erhalten.
-Innerhalb eines Ordners entfällt dessen Name am Anfang des Titels:
-"Tatort: Charlie" steht unter "Tatort" als "Charlie". Suche und Player zeigen
-den vollständigen Titel.
-
 Jede Zeile zeigt Gesehen-Status, Titel, Sender, Datum und Dauer, rechts steht
 Löschen. Die Spalten haben kleine Abstände und ausgerichtete Datumsangaben mit
 führenden Nullen. Die Dauer steht hinter dem Datum, mit Uhrsymbol und im
@@ -230,10 +220,7 @@ Softwareupdates abschalten.
 
 Bei Releases mit signiertem Update-Feed öffnet **Update installieren …** die
 Installation. Sparkle lädt und prüft das Update. Wenn du bestätigst, ersetzt
-es die App und startet sie neu. Deine Einstellungen bleiben erhalten. Die
-bisher veröffentlichten Versionen bis 2.0 brauchen einmal ein manuelles Update,
-um diese Installation zu bekommen. Releases ohne signierten Feed bieten weiter
-die DMG an: im Browser laden, Tunerfenster beenden und die App ersetzen.
+es die App und startet sie neu. Deine Einstellungen bleiben erhalten.
 
 Die Versionszeile zeigt die Architektur der laufenden App. Läuft eine
 Intel-Version über Rosetta, erklärt das Fenster, dass das Update die native
