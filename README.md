@@ -12,23 +12,20 @@ recordings stored on the server.
 
 Requires macOS 14 or later. VLC is included.
 
-| Your Mac | Signed and notarized installer |
-| --- | --- |
-| Apple Silicon (M1 or newer) | [Download arm64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-2.0-arm64.dmg) |
-| Intel (64-bit) | [Download x64 DMG](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-2.0-x86_64.dmg) |
+Download the signed and notarized installer from the [latest release](https://github.com/NemoN/Tunerfenster/releases/latest).
+Choose the `arm64` DMG for Apple Silicon or the `x86_64` DMG for Intel Macs.
 
 [All releases and SHA-256 checksums](https://github.com/NemoN/Tunerfenster/releases)
 
 1. Open the DMG and drag **Tunerfenster** into **Applications**.
 2. Start the app and open **Tunerfenster → Settings**.
-3. Enter your TVHeadend URL, username and password, then connect.
+3. Enter your TVHeadend URL, username and password, then click **Save**.
 
 Updates keep your settings. The app starts muted.
 
 ## Screenshots
 
-These screenshots show Tunerfenster 1.9.0 connected to a real TVHeadend server.
-The window header containing the private server address has been cropped out.
+Tunerfenster connected to a TVHeadend server:
 
 ### Live TV with EPG and reception details
 
@@ -44,28 +41,7 @@ The window header containing the private server address has been cropped out.
 
 ### Tuner mosaic
 
-13 tuners, with one live stream, an EPG scan and idle tuners.
-
-![Real tuner mosaic showing a live stream, an EPG scan and idle tuners](docs/screenshots/live-mosaic.png)
-
-<details>
-<summary>Demo screenshots in English and German</summary>
-
-The following examples use fictitious channels and generated test signals.
-
-### Tuner mosaic
-
-![Tuner mosaic in English](docs/screenshots/mosaic-en.png)
-
-### TV mode with EPG and channel picon
-
-![TV mode and programme guide in English](docs/screenshots/tv-en.png)
-
-### German interface and reception details
-
-![German interface with reception information](docs/screenshots/reception-de.png)
-
-</details>
+![Tuner mosaic with multiple live streams](docs/screenshots/live-mosaic.png)
 
 ## Features
 

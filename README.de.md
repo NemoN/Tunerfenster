@@ -12,24 +12,20 @@ oder Aufzeichnungen vom Server abspielen.
 
 Benötigt macOS 14 oder neuer. VLC ist enthalten.
 
-| Dein Mac | Signierte und notarisierte Installationsdatei |
-| --- | --- |
-| Apple Silicon (M1 oder neuer) | [arm64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-2.0-arm64.dmg) |
-| Intel (64 Bit) | [x64-DMG herunterladen](https://github.com/NemoN/Tunerfenster/releases/latest/download/Tunerfenster-2.0-x86_64.dmg) |
+Die signierte und notarisierte Installationsdatei findest du beim [aktuellen Release](https://github.com/NemoN/Tunerfenster/releases/latest).
+Wähle die `arm64`-DMG für Apple Silicon oder die `x86_64`-DMG für Intel-Macs.
 
 [Alle Releases und SHA-256-Prüfsummen](https://github.com/NemoN/Tunerfenster/releases)
 
 1. Die DMG öffnen und **Tunerfenster** in **Applications / Programme** ziehen.
 2. Die App starten und **Tunerfenster → Einstellungen** öffnen.
-3. TVHeadend-Adresse, Benutzername und Passwort eingeben und verbinden.
+3. TVHeadend-Adresse, Benutzername und Passwort eingeben und auf **Speichern** klicken.
 
 Deine Einstellungen bleiben bei Updates erhalten. Die App startet stumm.
 
 ## Screenshots
 
-Die Screenshots zeigen Tunerfenster 1.9.0 an einem echten TVHeadend-Server.
-Die Fensterkopfzeile mit der privaten Serveradresse ist aus den Bildern
-herausgeschnitten.
+Tunerfenster an einem TVHeadend-Server:
 
 ### Live-TV mit EPG und Empfangsdaten
 
@@ -45,28 +41,7 @@ herausgeschnitten.
 
 ### Tuner-Mosaik
 
-13 Tuner mit einem Live-Stream, einer EPG-Abfrage und freien Tunern.
-
-![Echtes Tuner-Mosaik mit Live-Stream, EPG-Abfrage und freien Tunern](docs/screenshots/live-mosaic.png)
-
-<details>
-<summary>Demo-Screenshots auf Deutsch und Englisch</summary>
-
-Die folgenden Beispiele verwenden erfundene Sender und erzeugte Testsignale.
-
-### Tuner-Mosaik
-
-![Tuner-Mosaik auf Deutsch](docs/screenshots/mosaic-de.png)
-
-### TV-Modus mit EPG und Senderlogo
-
-![TV-Modus und Programmführer auf Deutsch](docs/screenshots/tv-de.png)
-
-### Empfangsdaten
-
-![Empfangsinformationen auf Deutsch](docs/screenshots/reception-de.png)
-
-</details>
+![Tuner-Mosaik mit mehreren Live-Streams](docs/screenshots/live-mosaic.png)
 
 ## Funktionen
 
