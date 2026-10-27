@@ -5,14 +5,14 @@
 <img src="docs/icon.png" width="96" height="96" alt="Tunerfenster icon">
 
 Tunerfenster is a native macOS app for watching TVHeadend streams. Show your
-tuners in a mosaic, watch one channel with its programme guide and logo, or play
+tuners in a mosaic, watch one channel with its programme guide, or play
 recordings stored on the server.
 
 ## Download
 
 Requires macOS 14 or later. VLC is included.
 
-Download the signed and notarized installer from the [latest release](https://github.com/NemoN/Tunerfenster/releases/latest).
+Download the signed installer from the [latest release](https://github.com/NemoN/Tunerfenster/releases/latest).
 Choose the `arm64` DMG for Apple Silicon or the `x86_64` DMG for Intel Macs.
 
 [All releases and SHA-256 checksums](https://github.com/NemoN/Tunerfenster/releases)
@@ -119,29 +119,6 @@ subfolders. Recordings in the storage root or alone in a folder appear directly
 in the list. Hover over a recording to see its path. **Refresh (⌘R)** picks up
 recordings moved on the server.
 
-The app can add an episode name from the subtitle or an explicit episode field
-in the description, such as "Tatort: Charlie". This applies to all series and
-programmes. Complete titles stay intact; repeated names and genre-only metadata
-are ignored. Ambiguous metadata leaves the original title intact. Only the
-displayed name changes; server entries and files stay as they are. Inside a
-folder, the title omits a matching folder prefix: "Tatort: Charlie" appears as
-"Charlie" under "Tatort". Search results and the player use the full title.
-
-Each row shows viewing status, title, channel, date and duration, with Delete
-on the right. The columns use small gaps and aligned dates with leading zeros.
-Duration follows the date, with a clock icon and the format
-hours:minutes:seconds. It is the scheduled duration from TVHeadend, which may
-differ from the file duration; a dash means unavailable. As the list narrows,
-channel and date disappear first, then duration. The same widths apply to all
-rows, including folders and search results.
-
-The name, date and clock buttons beside the total count sort by name, date or
-duration. Click the active button again to reverse the order. Folders and
-individual recordings are sorted together, including within folders. For date
-sorting, a folder uses its newest recording; for duration, its longest,
-including subfolders. Missing durations stay at the end in either direction.
-The app saves the sort order.
-
 #### Viewing status and deletion
 
 An empty circle before the title means unwatched, a half-filled circle means
@@ -211,9 +188,7 @@ automatic checks in Settings or the Software Updates window.
 
 For releases with a signed update feed, **Install update…** opens the installer.
 Sparkle downloads and verifies the update, then replaces and restarts the app
-when you confirm. Your settings are kept. Published versions through 2.0 need
-one manual update to get this installer. Releases without a signed feed still
-offer the DMG: download it in your browser, quit Tunerfenster and replace the app.
+when you confirm. Your settings are kept.
 
 The installed version line shows the architecture of the running app. If an
 Intel build runs under Rosetta, the window explains that the update will install
