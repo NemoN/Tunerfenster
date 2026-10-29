@@ -1,5 +1,7 @@
 # Tunerfenster
 
+<a href="https://www.buymeacoffee.com/nemon" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/white_img.png" alt="Buy Me A Coffee" style="height: auto !important;width: auto !important;" ></a>
+
 [English](README.md) · [Deutsch](README.de.md)
 
 <img src="docs/icon.png" width="96" height="96" alt="Tunerfenster icon">
